@@ -143,6 +143,8 @@ spec:
 
     // Keep at most 14 builds for at most 14 days
     buildDiscarder logRotator(artifactDaysToKeepStr: '14', artifactNumToKeepStr: '4', daysToKeepStr: '14', numToKeepStr: '14')
+    disableConcurrentBuilds()
+    timeout(time: 90, unit: 'MINUTES')    
   }
 
   stages {
