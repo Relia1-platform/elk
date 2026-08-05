@@ -15,7 +15,7 @@ jobs:
       matrix:
         # We check against LTSs supported by GWT
         # 17 - LTS
-        node-version: [ 14.x, 22.x ]
+        node-version: [ 24.x, 26.x ]
         java-version: [ 17 ] 
 
     steps:
