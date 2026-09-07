@@ -1,0 +1,34 @@
+{
+  "id": "hierarchy-ports-labels",
+  "layoutOptions": {
+    "elk.algorithm": "geometric",
+    "elk.geometric.mode": "TREE",
+    "elk.direction": "RIGHT",
+    "elk.hierarchyHandling": "INCLUDE_CHILDREN",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]"
+  },
+  "children": [
+    {
+      "id": "group",
+      "layoutOptions": {"elk.geometric.mode":"TREE","elk.direction":"DOWN","elk.spacing.nodeNode":"24"},
+      "children": [
+        {
+          "id": "nested",
+          "layoutOptions": {"elk.geometric.mode":"TREE","elk.spacing.nodeNode":"24"},
+          "children": [
+            {"id":"a","width":40,"height":30,"layoutOptions":{"elk.portConstraints":"FIXED_POS"},
+             "ports":[{"id":"west","x":0,"y":15,"width":0,"height":0,"layoutOptions":{"elk.port.side":"WEST"}}]},
+            {"id":"b","width":70,"height":40}
+          ],
+          "edges":[{"id":"ab","sources":["a"],"targets":["b"],"labels":[{"id":"ab-label","text":"nested","width":90,"height":16}]}]
+        },
+        {"id":"c","width":50,"height":35}
+      ],
+      "edges":[{"id":"bc","sources":["b"],"targets":["c"]}]
+    },
+    {"id":"outside","width":60,"height":40}
+  ],
+  "edges":[{"id":"external","sources":["west"],"targets":["outside"],
+    "labels":[{"id":"external-label","text":"across groups","width":120,"height":18}]}]
+}

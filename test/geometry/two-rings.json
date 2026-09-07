@@ -1,0 +1,162 @@
+{
+  "id": "two-rings",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.geometric.mode": "AUTO",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]"
+  },
+  "children": [
+    {
+      "id": "a0",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a2",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a3",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a4",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b0",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b2",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b3",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b4",
+      "width": 40,
+      "height": 30
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "a0"
+      ],
+      "targets": [
+        "a1"
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "a1"
+      ],
+      "targets": [
+        "a2"
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "a2"
+      ],
+      "targets": [
+        "a3"
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "a3"
+      ],
+      "targets": [
+        "a4"
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "a4"
+      ],
+      "targets": [
+        "a0"
+      ]
+    },
+    {
+      "id": "e5",
+      "sources": [
+        "b0"
+      ],
+      "targets": [
+        "b1"
+      ]
+    },
+    {
+      "id": "e6",
+      "sources": [
+        "b1"
+      ],
+      "targets": [
+        "b2"
+      ]
+    },
+    {
+      "id": "e7",
+      "sources": [
+        "b2"
+      ],
+      "targets": [
+        "b3"
+      ]
+    },
+    {
+      "id": "e8",
+      "sources": [
+        "b3"
+      ],
+      "targets": [
+        "b4"
+      ]
+    },
+    {
+      "id": "e9",
+      "sources": [
+        "b4"
+      ],
+      "targets": [
+        "b0"
+      ]
+    },
+    {
+      "id": "e10",
+      "sources": [
+        "a2"
+      ],
+      "targets": [
+        "b0"
+      ]
+    }
+  ]
+}

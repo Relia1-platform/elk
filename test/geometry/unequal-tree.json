@@ -1,0 +1,74 @@
+{
+  "id": "unequal-tree",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.geometric.mode": "TREE",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]"
+  },
+  "children": [
+    {
+      "id": "r",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a",
+      "width": 20,
+      "height": 20
+    },
+    {
+      "id": "b",
+      "width": 100,
+      "height": 80
+    },
+    {
+      "id": "a1",
+      "width": 140,
+      "height": 30
+    },
+    {
+      "id": "b1",
+      "width": 20,
+      "height": 20
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "a"
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "b"
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a1"
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b1"
+      ]
+    }
+  ]
+}

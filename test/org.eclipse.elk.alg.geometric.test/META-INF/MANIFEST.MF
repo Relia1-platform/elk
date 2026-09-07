@@ -1,0 +1,18 @@
+Manifest-Version: 1.0
+Bundle-ManifestVersion: 2
+Bundle-Name: ELK Geometric Tests
+Bundle-SymbolicName: org.eclipse.elk.alg.geometric.test;singleton:=true
+Bundle-Version: 0.13.0.qualifier
+Bundle-RequiredExecutionEnvironment: JavaSE-17
+Require-Bundle: org.eclipse.emf.common,
+ org.eclipse.elk.core,
+ org.eclipse.elk.graph,
+ org.eclipse.elk.graph.json,
+ org.eclipse.elk.alg.common,
+ org.eclipse.elk.alg.geometric,
+ org.eclipse.elk.alg.mrtree,
+ org.eclipse.elk.alg.radial,
+ org.eclipse.elk.alg.layered,
+ com.google.gson,
+ org.junit
+Bundle-Vendor: Eclipse Modeling Project

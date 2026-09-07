@@ -1,0 +1,104 @@
+{
+  "id": "rooted-cycle",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.geometric.mode": "RADIAL",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]"
+  },
+  "children": [
+    {
+      "id": "r",
+      "width": 40,
+      "height": 30,
+      "layoutOptions": {
+        "elk.geometric.root": "true"
+      }
+    },
+    {
+      "id": "a",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "c",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "d",
+      "width": 40,
+      "height": 30
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "a"
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "b"
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "c"
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "c"
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "c"
+      ],
+      "targets": [
+        "r"
+      ]
+    },
+    {
+      "id": "e5",
+      "sources": [
+        "c"
+      ],
+      "targets": [
+        "d"
+      ]
+    },
+    {
+      "id": "e6",
+      "sources": [
+        "d"
+      ],
+      "targets": [
+        "a"
+      ]
+    }
+  ]
+}

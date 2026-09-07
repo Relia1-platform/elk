@@ -1,0 +1,18 @@
+Manifest-Version: 1.0
+Automatic-Module-Name: org.eclipse.elk.alg.geometric
+Bundle-ManifestVersion: 2
+Bundle-Name: ELK Geometric Layout Algorithm
+Bundle-SymbolicName: org.eclipse.elk.alg.geometric;singleton:=true
+Bundle-Version: 0.13.0.qualifier
+Bundle-Vendor: Eclipse Modeling Project
+Bundle-RequiredExecutionEnvironment: JavaSE-17
+Require-Bundle: org.eclipse.emf.ecore,
+ org.eclipse.elk.core,
+ org.eclipse.elk.graph,
+ org.eclipse.elk.alg.common,
+ org.eclipse.elk.alg.layered,
+ org.eclipse.elk.alg.mrtree,
+ org.eclipse.elk.alg.radial
+Export-Package: org.eclipse.elk.alg.geometric,
+ org.eclipse.elk.alg.geometric.options
+
