@@ -33,6 +33,7 @@ import org.eclipse.elk.graph.ElkNode
 import org.eclipse.elk.graph.ElkPort
 import org.eclipse.elk.graph.ElkShape
 import org.eclipse.elk.graph.properties.IPropertyHolder
+import org.eclipse.elk.graph.properties.Property
 import org.eclipse.elk.graph.util.ElkGraphUtil
 
 /**
@@ -490,7 +491,7 @@ final class JsonImporter {
         ]
     }
 
-    private def transformPorts(Object jsonObjA, ElkNode parent) {
+    private def void transformPorts(Object jsonObjA, ElkNode parent) {
         val jsonObj = jsonObjA.toJsonObject
         jsonObj.optJSONArray("ports") => [ ports |
             if (ports !== null) {
@@ -514,6 +515,11 @@ final class JsonImporter {
     
     private def transformShapeLayout(Object jsonObjA, ElkShape shape) {
         val jsonObj = jsonObjA.toJsonObject
+        if (shape instanceof ElkNode) {
+            // Preserve presence separately from the numeric default for interactive geometric layout.
+            shape.setProperty(new Property<Boolean>("org.eclipse.elk.json.positionProvided"),
+                jsonObj.hasJsonObj("x") && jsonObj.hasJsonObj("y"))
+        }
         jsonObj.optDouble("x") => [shape.x = it.doubleValueValid]
         jsonObj.optDouble("y") => [shape.y = it.doubleValueValid]
         jsonObj.optDouble("width") => [shape.width = it.doubleValueValid]
@@ -662,6 +668,7 @@ final class JsonImporter {
         }
         
         // transfer junction points, if existent
+        jsonObj.removeJsonObj("junctionPoints")
         if (edge.hasProperty(CoreOptions.JUNCTION_POINTS)) {
             val jps = edge.getProperty(CoreOptions.JUNCTION_POINTS)
             if (!jps.nullOrEmpty) {
