@@ -17,6 +17,14 @@ package org.eclipse.elk.alg.radial;
 import java.util.List;
 
 import org.eclipse.elk.alg.common.NodeMicroLayout;
+import org.eclipse.elk.alg.common.FixedNodeRouter;
+import org.eclipse.elk.alg.common.GeometryBounds;
+import org.eclipse.elk.alg.common.GeometryClearance;
+import org.eclipse.elk.alg.common.GeometryGraph;
+import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
+import org.eclipse.elk.alg.common.GeometryPacking;
+import org.eclipse.elk.alg.radial.options.RadialNodePlacement;
+import org.eclipse.elk.core.options.CoreOptions;
 import org.eclipse.elk.alg.radial.intermediate.IntermediateProcessorStrategy;
 import org.eclipse.elk.alg.radial.options.CompactionStrategy;
 import org.eclipse.elk.alg.radial.options.RadialOptions;
@@ -48,6 +56,26 @@ public class RadialLayoutProvider extends AbstractLayoutProvider {
                            .execute();
         }
 
+        if (layoutGraph.getProperty(RadialOptions.NODE_PLACEMENT) == RadialNodePlacement.BALANCED) {
+            GeometryGraph geometry = new GeometryGraph(layoutGraph, false);
+            List<List<Vertex>> components = geometry.components();
+            ElkNode center = null;
+            for (List<Vertex> component : components) {
+                Vertex selectedRoot = geometry.chooseRoot(component);
+                BalancedRadialLayout.place(geometry, component, selectedRoot,
+                        GeometryClearance.nodeSpacing(layoutGraph, layoutGraph.getProperty(CoreOptions.SPACING_NODE_NODE)),
+                        layoutGraph.getProperty(RadialOptions.RADIUS), -Math.PI / 2, true);
+                center = selectedRoot.node;
+            }
+            GeometryPacking.pack(components, layoutGraph.getProperty(CoreOptions.SPACING_COMPONENT_COMPONENT),
+                    layoutGraph.getProperty(CoreOptions.ASPECT_RATIO));
+            geometry.applyPositions();
+            new FixedNodeRouter(layoutGraph).route();
+            GeometryBounds.normalize(layoutGraph,
+                    components.size() == 1 && layoutGraph.getProperty(RadialOptions.CENTER_ON_ROOT) ? center : null, true);
+            progressMonitor.done();
+            return;
+        }
         // pre calculate the root node and save it
         ElkNode root = RadialUtil.findRoot(layoutGraph);
         layoutGraph.setProperty(InternalProperties.ROOT_NODE, root);

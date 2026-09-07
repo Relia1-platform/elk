@@ -17,6 +17,14 @@ package org.eclipse.elk.alg.mrtree;
 import java.util.List;
 
 import org.eclipse.elk.alg.common.NodeMicroLayout;
+import org.eclipse.elk.alg.common.FixedNodeRouter;
+import org.eclipse.elk.alg.common.GeometryBounds;
+import org.eclipse.elk.alg.common.GeometryClearance;
+import org.eclipse.elk.alg.common.GeometryGraph;
+import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
+import org.eclipse.elk.alg.common.GeometryPacking;
+import org.eclipse.elk.alg.mrtree.options.TreeNodePlacement;
+import org.eclipse.elk.core.options.CoreOptions;
 import org.eclipse.elk.alg.mrtree.graph.TGraph;
 import org.eclipse.elk.alg.mrtree.options.MrTreeOptions;
 import org.eclipse.elk.core.AbstractLayoutProvider;
@@ -56,6 +64,23 @@ public class TreeLayoutProvider extends AbstractLayoutProvider {
         if (!layoutGraph.getProperty(MrTreeOptions.OMIT_NODE_MICRO_LAYOUT)) {
             NodeMicroLayout.forGraph(layoutGraph)
                            .execute();
+        }
+        if (layoutGraph.getProperty(MrTreeOptions.NODE_PLACEMENT) == TreeNodePlacement.BALANCED) {
+            progressMonitor.begin("Balanced tree layout", 1);
+            GeometryGraph geometry = new GeometryGraph(layoutGraph, false);
+            List<List<Vertex>> components = geometry.components();
+            for (List<Vertex> component : components) {
+                BalancedTreeLayout.place(geometry, component, geometry.chooseRoot(component),
+                        layoutGraph.getProperty(CoreOptions.DIRECTION),
+                        GeometryClearance.nodeSpacing(layoutGraph, layoutGraph.getProperty(CoreOptions.SPACING_NODE_NODE)));
+            }
+            GeometryPacking.pack(components, layoutGraph.getProperty(CoreOptions.SPACING_COMPONENT_COMPONENT),
+                    layoutGraph.getProperty(CoreOptions.ASPECT_RATIO));
+            geometry.applyPositions();
+            new FixedNodeRouter(layoutGraph).route();
+            GeometryBounds.normalize(layoutGraph, null, true);
+            progressMonitor.done();
+            return;
         }
         // build tGraph
         IElkProgressMonitor pm = progressMonitor.subTask(defaultWork);

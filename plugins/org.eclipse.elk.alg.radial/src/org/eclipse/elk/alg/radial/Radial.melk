@@ -15,6 +15,7 @@
 package org.eclipse.elk.alg.radial
 
 import org.eclipse.elk.alg.radial.RadialLayoutProvider
+import org.eclipse.elk.alg.radial.options.RadialNodePlacement
 
 bundle {
     metadataClass options.RadialMetaDataProvider
@@ -53,6 +54,16 @@ algorithm radial(RadialLayoutProvider) {
     supports sorter
     supports wedgeCriteria
     supports centerOnRoot
+    supports nodePlacement
+    supports org.eclipse.elk.padding
+    supports org.eclipse.elk.nodeSize.fixedGraphSize
+}
+
+option nodePlacement: RadialNodePlacement {
+    label "Radial Node Placement"
+    description "Use equal angular sectors and evenly spaced concentric levels, or Eades placement."
+    default = RadialNodePlacement.EADES
+    targets parents
 }
 
 /////////////////////////////////Options///////////////////////////////

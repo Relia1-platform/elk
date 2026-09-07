@@ -14,6 +14,8 @@
  *******************************************************************************/
 package org.eclipse.elk.alg.mrtree
 
+import org.eclipse.elk.alg.mrtree.options.TreeNodePlacement
+
 import org.eclipse.elk.alg.mrtree.TreeLayoutProvider
 import org.eclipse.elk.alg.mrtree.options.OrderWeighting
 import org.eclipse.elk.alg.mrtree.options.TreeifyingOrder
@@ -61,6 +63,7 @@ algorithm mrtree(TreeLayoutProvider) {
     supports org.eclipse.elk.nodeLabels.placement
     supports org.eclipse.elk.omitNodeMicroLayout
     supports org.eclipse.elk.portLabels.placement
+    supports nodePlacement
     supports weighting
     supports searchOrder
     // topdown layout
@@ -74,6 +77,13 @@ algorithm mrtree(TreeLayoutProvider) {
     supports treeLevel
     supports compaction
     supports edgeEndTextureLength
+}
+
+option nodePlacement: TreeNodePlacement {
+    label "Tree Node Placement"
+    description "Use balanced double-precision subtree contours, or the legacy placement pipeline."
+    default = TreeNodePlacement.LEGACY
+    targets parents
 }
 
 option compaction: boolean {
