@@ -7,6 +7,7 @@ Automatic-Module-Name: org.eclipse.elk.alg.mrtree.test
 Bundle-RequiredExecutionEnvironment: JavaSE-17
 Bundle-Vendor: Eclipse Modeling Project
 Require-Bundle: com.google.guava,
+ org.eclipse.emf.common,
  org.eclipse.elk.core,
  org.eclipse.elk.graph,
  org.eclipse.elk.alg.common,
@@ -14,4 +15,3 @@ Require-Bundle: com.google.guava,
  org.eclipse.elk.alg.test,
  org.junit,
  org.hamcrest.library
-

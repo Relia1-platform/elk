@@ -15,6 +15,7 @@
 package org.eclipse.elk.alg.mrtree.test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.util.Arrays;
@@ -28,6 +29,7 @@ import org.eclipse.elk.core.UnsupportedGraphException;
 import org.eclipse.elk.core.data.LayoutAlgorithmResolver;
 import org.eclipse.elk.core.math.ElkPadding;
 import org.eclipse.elk.core.options.CoreOptions;
+import org.eclipse.elk.core.options.Direction;
 import org.eclipse.elk.core.util.BasicProgressMonitor;
 import org.eclipse.elk.core.util.ElkUtil;
 import org.eclipse.elk.graph.ElkNode;
@@ -43,6 +45,32 @@ import org.junit.runners.Parameterized.Parameters;
  */
 @RunWith(Parameterized.class)
 public class MrTreeGraphSizeTest {
+
+    @Test
+    public void containsUnequalNodesInEveryDirection() {
+        PlainJavaInitialization.initializePlainJavaLayout();
+        for (Direction direction : new Direction[] {Direction.DOWN, Direction.UP, Direction.LEFT, Direction.RIGHT}) {
+            ElkNode graph = ElkGraphUtil.createGraph();
+            graph.setProperty(CoreOptions.ALGORITHM, MrTreeOptions.ALGORITHM_ID);
+            graph.setProperty(CoreOptions.DIRECTION, direction);
+            ElkNode root = ElkGraphUtil.createNode(graph);
+            root.setDimensions(40, 40);
+            ElkNode small = ElkGraphUtil.createNode(graph);
+            small.setDimensions(20, 20);
+            ElkNode large = ElkGraphUtil.createNode(graph);
+            large.setDimensions(100, 80);
+            ElkGraphUtil.createSimpleEdge(root, small);
+            ElkGraphUtil.createSimpleEdge(root, large);
+            ElkUtil.applyVisitors(graph, new LayoutConfigurator(), new LayoutAlgorithmResolver());
+            new RecursiveGraphLayoutEngine().layout(graph, new BasicProgressMonitor());
+            for (ElkNode node : graph.getChildren()) {
+                assertTrue(direction + " left", node.getX() >= -DOUBLE_EQ_EPSILON);
+                assertTrue(direction + " top", node.getY() >= -DOUBLE_EQ_EPSILON);
+                assertTrue(direction + " right", node.getX() + node.getWidth() <= graph.getWidth() + DOUBLE_EQ_EPSILON);
+                assertTrue(direction + " bottom", node.getY() + node.getHeight() <= graph.getHeight() + DOUBLE_EQ_EPSILON);
+            }
+        }
+    }
 
     private static double DOUBLE_EQ_EPSILON = 10e-5;
     

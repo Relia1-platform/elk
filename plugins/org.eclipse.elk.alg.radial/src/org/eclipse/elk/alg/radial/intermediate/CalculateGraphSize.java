@@ -22,6 +22,7 @@ import org.eclipse.elk.core.math.ElkPadding;
 import org.eclipse.elk.core.math.KVector;
 import org.eclipse.elk.core.options.CoreOptions;
 import org.eclipse.elk.core.util.IElkProgressMonitor;
+import org.eclipse.elk.core.util.ElkUtil;
 import org.eclipse.elk.graph.ElkNode;
 
 /**
@@ -37,8 +38,8 @@ public class CalculateGraphSize implements ILayoutProcessor<ElkNode> {
         // calculate the offset from border spacing and node distribution
         double minXPos = Double.MAX_VALUE;
         double minYPos = Double.MAX_VALUE;
-        double maxXPos = Double.MIN_VALUE;
-        double maxYPos = Double.MIN_VALUE;
+        double maxXPos = -Double.MAX_VALUE;
+        double maxYPos = -Double.MAX_VALUE;
 
         for (ElkNode node : graph.getChildren()) {
             double posX = node.getX();
@@ -54,53 +55,29 @@ public class CalculateGraphSize implements ILayoutProcessor<ElkNode> {
         }
 
         ElkPadding padding = graph.getProperty(CoreOptions.PADDING);
+        if (graph.getChildren().isEmpty()) {
+            minXPos = minYPos = maxXPos = maxYPos = 0;
+        }
         KVector offset = new KVector(minXPos - padding.getLeft(), minYPos - padding.getTop());
         
         
         double width = maxXPos - minXPos + padding.getHorizontal();
         double height = maxYPos - minYPos + padding.getVertical();
         
-        if (graph.getProperty(RadialOptions.CENTER_ON_ROOT)) {
+        if (graph.getProperty(RadialOptions.CENTER_ON_ROOT) && !graph.getChildren().isEmpty()) {
             ElkNode root = graph.getProperty(InternalProperties.ROOT_NODE);
-            ElkMargin rootMargins = root.getProperty(CoreOptions.MARGINS);
-            // calculate the current midpoint of the root, taking into account the defined margins and the already
-            // calculated offset necessary to shift the graph into the positive quadrant of the coordinate system
-            double rootX = root.getX() + root.getWidth()/2 + (rootMargins.left + rootMargins.right)/2 - offset.x;
-            double rootY = root.getY() + root.getHeight()/2 + (rootMargins.top + rootMargins.bottom)/2 - offset.y;
-            
-            double dx = width - rootX;
-            double dy = height - rootY;
-            
-            if (dx < width / 2) {
-                // need to add additional space on the left
-                double additionalX = dx - rootX;
-                width += additionalX;
-                offset.x -= additionalX;
-            } else {
-                // add addtional space on the right
-                double additionalX = rootX - dx;
-                width += additionalX;
-            }
-            
-            if (dy < height / 2) {
-                //need to add additional space on the top
-                double additionalY = dy - rootY;
-                height += additionalY;
-                offset.y -= additionalY;
-            } else {
-                // add addtional space on the bottom
-                double additionalY = rootY - dy;
-                height += additionalY;
-            }
-            
+            double rootX = root.getX() + root.getWidth() / 2;
+            double rootY = root.getY() + root.getHeight() / 2;
+            // Expand towards the farther extent. Margins affect bounds, not the node's center.
+            double halfWidth = Math.max(rootX - minXPos + padding.left, maxXPos - rootX + padding.right);
+            double halfHeight = Math.max(rootY - minYPos + padding.top, maxYPos - rootY + padding.bottom);
+            width = 2 * halfWidth;
+            height = 2 * halfHeight;
+            offset.x = rootX - halfWidth;
+            offset.y = rootY - halfHeight;
         }
 
-        // process the nodes
-        for (ElkNode node : graph.getChildren()) {
-            // set the node position
-            node.setX(node.getX() - offset.x);
-            node.setY(node.getY() - offset.y);
-        }
+        ElkUtil.translate(graph, -offset.x, -offset.y);
 
         // set up the graph
         if (!graph.getProperty(CoreOptions.NODE_SIZE_FIXED_GRAPH_SIZE)) {

@@ -15,6 +15,7 @@
 package org.eclipse.elk.alg.radial.test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.eclipse.elk.alg.radial.RadialLayoutProvider;
 import org.eclipse.elk.alg.radial.options.RadialOptions;
@@ -33,6 +34,34 @@ import org.junit.Test;
  *
  */
 public class CenterOnRootTest {
+
+    @Test
+    public void asymmetricTreeIsCenteredAndContained() {
+        ElkNode graph = ElkGraphUtil.createGraph();
+        graph.setProperty(RadialOptions.CENTER_ON_ROOT, true);
+        graph.setProperty(CoreOptions.SPACING_NODE_NODE, 40.0);
+        ElkNode root = ElkGraphUtil.createNode(graph);
+        root.setDimensions(48, 48);
+        for (int count : new int[] {1, 2, 4}) {
+            ElkNode branch = ElkGraphUtil.createNode(graph);
+            branch.setDimensions(48, 48);
+            ElkGraphUtil.createSimpleEdge(root, branch);
+            for (int i = 0; i < count; i++) {
+                ElkNode leaf = ElkGraphUtil.createNode(graph);
+                leaf.setDimensions(48, 48);
+                ElkGraphUtil.createSimpleEdge(branch, leaf);
+            }
+        }
+        new RadialLayoutProvider().layout(graph, new BasicProgressMonitor());
+        assertEquals(graph.getWidth() / 2, root.getX() + root.getWidth() / 2, 1e-6);
+        assertEquals(graph.getHeight() / 2, root.getY() + root.getHeight() / 2, 1e-6);
+        for (ElkNode node : graph.getChildren()) {
+            assertTrue("left", node.getX() >= -1e-6);
+            assertTrue("top", node.getY() >= -1e-6);
+            assertTrue("right", node.getX() + node.getWidth() <= graph.getWidth() + 1e-6);
+            assertTrue("bottom", node.getY() + node.getHeight() <= graph.getHeight() + 1e-6);
+        }
+    }
     
     @BeforeClass
     public static void init() {

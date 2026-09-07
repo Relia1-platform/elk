@@ -23,6 +23,7 @@ import org.eclipse.elk.alg.mrtree.graph.TNode;
 import org.eclipse.elk.alg.mrtree.options.InternalProperties;
 import org.eclipse.elk.alg.mrtree.options.MrTreeOptions;
 import org.eclipse.elk.core.math.ElkPadding;
+import org.eclipse.elk.core.math.ElkMargin;
 import org.eclipse.elk.core.math.KVector;
 import org.eclipse.elk.core.math.KVectorChain;
 import org.eclipse.elk.core.options.CoreOptions;
@@ -156,17 +157,26 @@ public class ElkGraphImporter implements IGraphImporter<ElkNode> {
         ElkNode elkgraph = (ElkNode) tGraph.getProperty(InternalProperties.ORIGIN);
         
         // calculate the offset from border spacing and node distribution
-        double minXPos = Integer.MAX_VALUE;
-        double minYPos = Integer.MAX_VALUE;
-        double maxXPos = Integer.MIN_VALUE;
-        double maxYPos = Integer.MIN_VALUE;
+        double minXPos = Double.POSITIVE_INFINITY;
+        double minYPos = Double.POSITIVE_INFINITY;
+        double maxXPos = Double.NEGATIVE_INFINITY;
+        double maxYPos = Double.NEGATIVE_INFINITY;
         for (TNode tNode : tGraph.getNodes()) {
+            Object origin = tNode.getProperty(InternalProperties.ORIGIN);
+            if (!(origin instanceof ElkNode)) {
+                continue;
+            }
             KVector pos = tNode.getPosition();
             KVector size = tNode.getSize();
-            minXPos = Math.min(minXPos, pos.x - size.x / 2);
-            minYPos = Math.min(minYPos, pos.y - size.y / 2);
-            maxXPos = Math.max(maxXPos, pos.x + size.x / 2);
-            maxYPos = Math.max(maxYPos, pos.y + size.y / 2);
+            ElkMargin margins = ((ElkNode) origin).getProperty(CoreOptions.MARGINS);
+            // NodePositionProcessor has already converted centers to top-left coordinates.
+            minXPos = Math.min(minXPos, pos.x - margins.left);
+            minYPos = Math.min(minYPos, pos.y - margins.top);
+            maxXPos = Math.max(maxXPos, pos.x + size.x + margins.right);
+            maxYPos = Math.max(maxYPos, pos.y + size.y + margins.bottom);
+        }
+        if (minXPos == Double.POSITIVE_INFINITY) {
+            minXPos = minYPos = maxXPos = maxYPos = 0;
         }
 
         ElkPadding padding = elkgraph.getProperty(MrTreeOptions.PADDING);
@@ -190,6 +200,9 @@ public class ElkGraphImporter implements IGraphImporter<ElkNode> {
                 ElkUtil.applyVectorChain(bendPoints, edgeSection);
             }
         }
+
+        // Translate all layout information together, including edge labels and junction points.
+        ElkUtil.translate(elkgraph, padding.left - minXPos, padding.top - minYPos);
 
         // set up the graph
         double width = maxXPos - minXPos + padding.getHorizontal();
