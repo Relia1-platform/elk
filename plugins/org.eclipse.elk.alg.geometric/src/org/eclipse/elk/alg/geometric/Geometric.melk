@@ -32,6 +32,11 @@ algorithm geometric(GeometricLayoutProvider) {
     supports org.eclipse.elk.nodeSize.options
     supports org.eclipse.elk.nodeSize.fixedGraphSize
     supports org.eclipse.elk.nodeLabels.placement
+    supports org.eclipse.elk.edgeLabels.placement
+    supports org.eclipse.elk.edgeLabels.inline
+    supports org.eclipse.elk.spacing.edgeLabel
+    supports org.eclipse.elk.spacing.labelNode
+    supports org.eclipse.elk.spacing.labelLabel
     supports org.eclipse.elk.portConstraints
     supports org.eclipse.elk.port.side
     supports org.eclipse.elk.port.index

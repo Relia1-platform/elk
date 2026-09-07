@@ -20,6 +20,8 @@ import org.eclipse.elk.alg.radial.BalancedRadialLayout;
 import org.eclipse.elk.core.options.CoreOptions;
 import org.eclipse.elk.core.options.Direction;
 import org.eclipse.elk.core.util.IElkProgressMonitor;
+import org.eclipse.elk.graph.ElkEdge;
+import org.eclipse.elk.graph.ElkLabel;
 import org.eclipse.elk.graph.ElkNode;
 import org.eclipse.elk.graph.util.ElkGraphUtil;
 
@@ -77,11 +79,16 @@ final class MixedLayoutKernel {
             }
         }
         ElkNode macro = ElkGraphUtil.createGraph();
+        // Label spacing applies to the composed regions exactly as to the scope itself.
+        macro.setProperty(CoreOptions.SPACING_EDGE_NODE, graph.graph.getProperty(CoreOptions.SPACING_EDGE_NODE));
+        macro.setProperty(CoreOptions.SPACING_EDGE_LABEL, graph.graph.getProperty(CoreOptions.SPACING_EDGE_LABEL));
+        macro.setProperty(CoreOptions.SPACING_LABEL_NODE, graph.graph.getProperty(CoreOptions.SPACING_LABEL_NODE));
+        macro.setProperty(CoreOptions.SPACING_LABEL_LABEL, graph.graph.getProperty(CoreOptions.SPACING_LABEL_LABEL));
         for (Region region : regions) {
             if (region.ring) {
                 placeRingBranches(graph, region, spacing, angle, clockwise);
             } else {
-                LayeredRegionLayout.place(region.members, spacing, direction, monitor.subTask(1));
+                LayeredRegionLayout.place(graph, region.members, spacing, direction, monitor.subTask(1));
             }
             region.bounds = GeometryPacking.bounds(region.members);
             region.proxy = ElkGraphUtil.createNode(macro);
@@ -94,14 +101,30 @@ final class MixedLayoutKernel {
                 }
             }
         }
-        Set<String> connections = new HashSet<>();
+        Map<String, ElkEdge> connections = new HashMap<>();
         for (Vertex vertex : component) {
             for (Vertex target : vertex.outgoing) {
                 Region a = owner.get(vertex);
                 Region b = owner.get(target);
-                if (b != null && a != b && connections.add(a.proxy.getIdentifier() + ":" + b.proxy.getIdentifier())) {
-                    ElkGraphUtil.createSimpleEdge(a.proxy, b.proxy);
+                if (b == null || a == b) { continue; }
+                String key = a.proxy.getIdentifier() + ":" + b.proxy.getIdentifier();
+                if (!connections.containsKey(key)) {
+                    connections.put(key, ElkGraphUtil.createSimpleEdge(a.proxy, b.proxy));
                 }
+            }
+        }
+        // Cross-link labels reserve room between regions through proxy labels of the same size.
+        for (ElkEdge edge : graph.graph.getContainedEdges()) {
+            if (edge.getLabels().isEmpty() || edge.getSources().size() != 1 || edge.getTargets().size() != 1) { continue; }
+            Region a = owner.get(graph.endpoint(edge.getSources().get(0)));
+            Region b = owner.get(graph.endpoint(edge.getTargets().get(0)));
+            if (a == null || b == null || a == b) { continue; }
+            ElkEdge proxy = connections.get(a.proxy.getIdentifier() + ":" + b.proxy.getIdentifier());
+            if (proxy == null) { proxy = connections.get(b.proxy.getIdentifier() + ":" + a.proxy.getIdentifier()); }
+            if (proxy == null) { continue; }
+            for (ElkLabel label : edge.getLabels()) {
+                ElkLabel copy = ElkGraphUtil.createLabel(proxy);
+                copy.setDimensions(label.getWidth(), label.getHeight());
             }
         }
         GeometryGraph structure = new GeometryGraph(macro, false);
@@ -115,9 +138,9 @@ final class MixedLayoutKernel {
         } else {
             List<Vertex> cycle = TopologyAnalysis.longestBasisCycle(vertices);
             if (TopologyAnalysis.qualifiesAsRing(vertices, cycle)) {
-                RingLayoutKernel.place(cycle, regionSpacing, angle, clockwise, false, 0);
+                RingLayoutKernel.place(cycle, regionSpacing, angle, clockwise, false, 0, structure);
             } else {
-                LayeredRegionLayout.place(vertices, regionSpacing, direction, monitor.subTask(1));
+                LayeredRegionLayout.place(structure, vertices, regionSpacing, direction, monitor.subTask(1));
             }
         }
         structure.applyPositions();
@@ -176,7 +199,7 @@ final class MixedLayoutKernel {
         }
         double radius = 0;
         for (int attempt = 0; attempt < 80; attempt++) {
-            radius = RingLayoutKernel.place(region.core, spacing, angle, clockwise, false, radius);
+            radius = RingLayoutKernel.place(region.core, spacing, angle, clockwise, false, radius, graph);
             for (Vertex anchor : region.core) {
                 double theta = Math.atan2(anchor.y, anchor.x);
                 for (Vertex vertex : branches.get(anchor)) {

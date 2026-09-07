@@ -5,6 +5,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.eclipse.elk.alg.common.EdgeLabelReservation;
+import org.eclipse.elk.alg.common.GeometryGraph;
 import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
 import org.eclipse.elk.alg.layered.LayeredLayoutProvider;
 import org.eclipse.elk.alg.layered.options.FixedAlignment;
@@ -12,6 +14,8 @@ import org.eclipse.elk.alg.layered.options.LayeredOptions;
 import org.eclipse.elk.core.options.CoreOptions;
 import org.eclipse.elk.core.options.Direction;
 import org.eclipse.elk.core.util.IElkProgressMonitor;
+import org.eclipse.elk.graph.ElkEdge;
+import org.eclipse.elk.graph.ElkLabel;
 import org.eclipse.elk.graph.ElkNode;
 import org.eclipse.elk.graph.util.ElkGraphUtil;
 
@@ -19,8 +23,8 @@ import org.eclipse.elk.graph.util.ElkGraphUtil;
 final class LayeredRegionLayout {
     private LayeredRegionLayout() { }
 
-    static void place(final List<Vertex> vertices, final double spacing, final Direction direction,
-            final IElkProgressMonitor monitor) {
+    static void place(final GeometryGraph data, final List<Vertex> vertices, final double spacing,
+            final Direction direction, final IElkProgressMonitor monitor) {
         ElkNode graph = ElkGraphUtil.createGraph();
         graph.setProperty(CoreOptions.DIRECTION, direction);
         graph.setProperty(CoreOptions.SPACING_NODE_NODE, spacing);
@@ -33,9 +37,21 @@ final class LayeredRegionLayout {
             proxy.setDimensions(vertex.right - vertex.left, vertex.bottom - vertex.top);
             proxies.put(vertex, proxy);
         }
+        List<EdgeLabelReservation.Reservation> reservations = EdgeLabelReservation.collect(data, vertices);
+        double gap = EdgeLabelReservation.Margins.of(data.graph).labelGap;
         for (Vertex vertex : vertices) {
             for (Vertex target : vertex.outgoing) {
-                if (proxies.containsKey(target)) { ElkGraphUtil.createSimpleEdge(proxies.get(vertex), proxies.get(target)); }
+                if (!proxies.containsKey(target)) { continue; }
+                ElkEdge proxy = ElkGraphUtil.createSimpleEdge(proxies.get(vertex), proxies.get(target));
+                // Layered reserves room for its own edge labels; a proxy label of the composite size suffices.
+                for (EdgeLabelReservation.Reservation reservation : reservations) {
+                    if (reservation.a == vertex && reservation.b == target || reservation.a == target && reservation.b == vertex) {
+                        double[] size = EdgeLabelReservation.composite(reservation.labels,
+                                direction == Direction.LEFT || direction == Direction.RIGHT, gap);
+                        ElkLabel label = ElkGraphUtil.createLabel(proxy);
+                        label.setDimensions(size[0], size[1]);
+                    }
+                }
             }
         }
         new LayeredLayoutProvider().layout(graph, monitor);

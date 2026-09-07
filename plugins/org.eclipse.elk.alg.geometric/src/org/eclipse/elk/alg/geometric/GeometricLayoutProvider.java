@@ -138,7 +138,8 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
                 }
                 List<Vertex> order = RingLayoutKernel.order(component, componentAnchor);
                 RingLayoutKernel.place(order, spacing, angle, clockwise,
-                        scope.getProperty(CoreOptions.INTERACTIVE) && !scope.hasProperty(GeometricOptions.START_ANGLE), 0);
+                        scope.getProperty(CoreOptions.INTERACTIVE) && !scope.hasProperty(GeometricOptions.START_ANGLE), 0,
+                        graph);
                 break;
             default:
                 MixedLayoutKernel.place(graph, component, stage);

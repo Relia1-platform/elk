@@ -72,7 +72,7 @@ public class GeometricLayoutTest {
                             .collect(Collectors.toList()), graph);
                 }
             }
-            if (name.equals("star") || name.equals("radial-asymmetric")) {
+            if (name.startsWith("star") || name.equals("radial-asymmetric")) {
                 ElkNode root = graph.getChildren().get(0);
                 assertEquals(graph.getWidth() / 2, cx(root), epsilon(graph));
                 assertEquals(graph.getHeight() / 2, cy(root), epsilon(graph));

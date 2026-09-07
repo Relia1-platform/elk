@@ -5,11 +5,16 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 
+import org.eclipse.elk.alg.common.EdgeLabelReservation;
 import org.eclipse.elk.alg.common.GeometryGraph;
 import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
 import org.eclipse.elk.core.options.Direction;
 
-/** Iterative contour placement. The two directional passes remove a left-to-right packing bias. */
+/**
+ * Iterative contour placement. The two directional passes remove a left-to-right packing bias.
+ * Labeled tree edges reserve room in front of and beside their child for packing only; the visible
+ * envelope that centers a parent over its descendants excludes those reservations.
+ */
 public final class BalancedTreeLayout {
     private BalancedTreeLayout() { }
 
@@ -34,10 +39,14 @@ public final class BalancedTreeLayout {
         List<Vertex> traversal = data.spanningTree(component, root);
         Profile[] profiles = new Profile[data.vertices.size()];
         double[] offsets = new double[data.vertices.size()];
+        double[] labelFront = new double[data.vertices.size()];
+        double[] labelSide = new double[data.vertices.size()];
+        EdgeLabelReservation.treeExtents(data, component, direction, EdgeLabelReservation.Margins.of(data.graph),
+                labelFront, labelSide);
         double before = 0;
         double after = 0;
         for (Vertex vertex : component) {
-            before = Math.max(before, -front(vertex, direction));
+            before = Math.max(before, -front(vertex, direction) + labelFront[vertex.index]);
             after = Math.max(after, back(vertex, direction));
         }
         double step = before + after + spacing;
@@ -45,10 +54,11 @@ public final class BalancedTreeLayout {
             Vertex vertex = traversal.get(index);
             double left = left(vertex, direction);
             double right = right(vertex, direction);
+            double packRight = Math.max(right, labelSide[vertex.index]);
             Profile profile;
             if (vertex.children.isEmpty()) {
                 profile = new Profile();
-                profile.bands.add(new Band(left, right));
+                profile.bands.add(new Band(left, packRight));
                 profile.min = left;
                 profile.max = right;
             } else if (vertex.children.size() == 1) {
@@ -60,7 +70,7 @@ public final class BalancedTreeLayout {
                 profile.offset += shift;
                 profile.min = Math.min(left, profile.min + shift);
                 profile.max = Math.max(right, profile.max + shift);
-                profile.bands.addFirst(new Band(left - profile.offset, right - profile.offset));
+                profile.bands.addFirst(new Band(left - profile.offset, packRight - profile.offset));
                 profiles[child.index] = null;
             } else {
                 double[] forward = pack(vertex.children, profiles, spacing, false);
@@ -81,7 +91,7 @@ public final class BalancedTreeLayout {
                     profiles[child.index] = null;
                 }
                 profile = new Profile();
-                profile.bands.add(new Band(left, right));
+                profile.bands.add(new Band(left, packRight));
                 profile.bands.addAll(union);
                 profile.min = Math.min(left, min - midpoint);
                 profile.max = Math.max(right, max - midpoint);

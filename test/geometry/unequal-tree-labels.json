@@ -1,0 +1,106 @@
+{
+  "id": "unequal-tree-labels",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    "elk.geometric.mode": "TREE"
+  },
+  "children": [
+    {
+      "id": "r",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a",
+      "width": 20,
+      "height": 20
+    },
+    {
+      "id": "b",
+      "width": 100,
+      "height": 80
+    },
+    {
+      "id": "a1",
+      "width": 140,
+      "height": 30
+    },
+    {
+      "id": "b1",
+      "width": 20,
+      "height": 20
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "a"
+      ],
+      "labels": [
+        {
+          "id": "e0-label",
+          "text": "e0-label",
+          "width": 70,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "b"
+      ],
+      "labels": [
+        {
+          "id": "e1-label",
+          "text": "e1-label",
+          "width": 30,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a1"
+      ],
+      "labels": [
+        {
+          "id": "e2-label",
+          "text": "e2-label",
+          "width": 110,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b1"
+      ],
+      "labels": [
+        {
+          "id": "e3-label",
+          "text": "e3-label",
+          "width": 50,
+          "height": 16
+        }
+      ]
+    }
+  ]
+}

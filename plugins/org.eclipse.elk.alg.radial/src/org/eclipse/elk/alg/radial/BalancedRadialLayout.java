@@ -2,8 +2,10 @@
 package org.eclipse.elk.alg.radial;
 
 import java.util.List;
+import org.eclipse.elk.alg.common.EdgeLabelReservation;
 import org.eclipse.elk.alg.common.GeometryGraph;
 import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
+import org.eclipse.elk.core.options.CoreOptions;
 
 /** Equal sectors and a single radius step for the complete rooted component. */
 public final class BalancedRadialLayout {
@@ -43,6 +45,11 @@ public final class BalancedRadialLayout {
                 step = Math.max(step, (a.enclosingRadius() + b.enclosingRadius() + spacing) / distance);
             }
         }
+        // Edge labels beside the straight radial segments keep their distance from all node disks.
+        EdgeLabelReservation.Margins margins = EdgeLabelReservation.Margins.of(data.graph);
+        double clearance = Math.max(margins.labelNode, Math.max(0, data.graph.getProperty(CoreOptions.SPACING_EDGE_NODE)));
+        step = EdgeLabelReservation.expand(EdgeLabelReservation.collect(data, component), component, step,
+                clearance, margins);
         for (Vertex vertex : component) {
             vertex.x *= step;
             vertex.y *= step;

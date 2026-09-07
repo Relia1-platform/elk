@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import org.eclipse.elk.alg.common.EdgeLabelReservation;
 import org.eclipse.elk.alg.common.GeometryGraph;
 import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
 import org.eclipse.elk.core.options.CoreOptions;
@@ -46,6 +47,13 @@ public final class RingLayoutKernel {
 
     public static double place(final List<Vertex> order, final double spacing, final double startAngle,
             final boolean clockwise, final boolean interactive, final double minimumRadius) {
+        return place(order, spacing, startAngle, clockwise, interactive, minimumRadius, null);
+    }
+
+    /** With a graph, labels of the edges among the ring nodes reserve room by growing the radius. */
+    public static double place(final List<Vertex> order, final double spacing, final double startAngle,
+            final boolean clockwise, final boolean interactive, final double minimumRadius,
+            final GeometryGraph graph) {
         int count = order.size();
         if (count == 0) { return 0; }
         if (count == 1) { order.get(0).x = 0; order.get(0).y = 0; return 0; }
@@ -81,8 +89,19 @@ public final class RingLayoutKernel {
             if (Math.hypot(real, imaginary) > 1e-8) { angle = Math.atan2(imaginary, real); }
         }
         for (int i = 0; i < count; i++) {
-            order.get(i).x = radius * Math.cos(angle + i * step);
-            order.get(i).y = radius * Math.sin(angle + i * step);
+            order.get(i).x = Math.cos(angle + i * step);
+            order.get(i).y = Math.sin(angle + i * step);
+        }
+        if (graph != null) {
+            EdgeLabelReservation.Margins margins = EdgeLabelReservation.Margins.of(graph.graph);
+            double clearance = Math.max(margins.labelNode,
+                    Math.max(0, graph.graph.getProperty(CoreOptions.SPACING_EDGE_NODE)));
+            radius = EdgeLabelReservation.expand(EdgeLabelReservation.collect(graph, order), order, radius,
+                    clearance, margins);
+        }
+        for (int i = 0; i < count; i++) {
+            order.get(i).x *= radius;
+            order.get(i).y *= radius;
         }
         return radius;
     }

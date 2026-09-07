@@ -1,0 +1,150 @@
+{
+  "id": "symmetric-tree-labels",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    "elk.geometric.mode": "TREE"
+  },
+  "children": [
+    {
+      "id": "r",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a2",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b2",
+      "width": 40,
+      "height": 30
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "a"
+      ],
+      "labels": [
+        {
+          "id": "e0-label",
+          "text": "edge",
+          "width": 48,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "b"
+      ],
+      "labels": [
+        {
+          "id": "e1-label",
+          "text": "edge",
+          "width": 48,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a1"
+      ],
+      "labels": [
+        {
+          "id": "e2-label",
+          "text": "edge",
+          "width": 48,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a2"
+      ],
+      "labels": [
+        {
+          "id": "e3-label",
+          "text": "edge",
+          "width": 48,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b1"
+      ],
+      "labels": [
+        {
+          "id": "e4-label",
+          "text": "edge",
+          "width": 48,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e5",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b2"
+      ],
+      "labels": [
+        {
+          "id": "e5-label",
+          "text": "edge",
+          "width": 48,
+          "height": 16
+        }
+      ]
+    }
+  ]
+}
