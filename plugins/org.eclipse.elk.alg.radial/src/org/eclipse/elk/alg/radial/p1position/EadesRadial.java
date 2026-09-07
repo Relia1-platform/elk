@@ -105,7 +105,10 @@ public class EadesRadial implements ILayoutPhase<RadialLayoutPhases, ElkNode> {
         RadialUtil.centerNodesOnRadi(node, xPos, yPos);
 
         double numberOfLeafs = annulusWedgeCriteria.calculateWedgeSpace(node);
-        double tau = 2 * Math.acos(currentRadius / currentRadius + radius);
+        // At the root every direction is available. Outside it, constrain descendants
+        // to the cone beyond the tangent to the parent's circle: rChild*cos(delta) >= rParent.
+        double ratio = currentRadius / Math.max(currentRadius + radius, 1e-12);
+        double tau = currentRadius == 0 ? 2 * Math.PI : 2 * Math.acos(Math.max(0, Math.min(1, ratio)));
         double s;
         double alpha;
         if (tau < maxAlpha - minAlpha) {
