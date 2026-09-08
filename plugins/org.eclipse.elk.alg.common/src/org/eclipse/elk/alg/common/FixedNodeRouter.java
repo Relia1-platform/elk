@@ -79,7 +79,6 @@ public final class FixedNodeRouter {
     private final Map<Integer, List<Segment>> segmentCells = new HashMap<>();
     private final List<Segment> directLines = new ArrayList<>();
     private final Map<ElkEdge, List<Point>> prerouted = new HashMap<>();
-    private final Map<ElkEdge, List<Segment>> fixedSegments = new HashMap<>();
     private final Map<ElkEdge, Integer> preferredSegments = new HashMap<>();
     private ElkEdge current;
     private boolean lenient;
@@ -221,9 +220,8 @@ public final class FixedNodeRouter {
         List<Point> converted = new ArrayList<>();
         for (KVector point : points) { converted.add(new Point(point.x, point.y)); }
         prerouted.put(edge, converted);
-        List<Segment> segments = new ArrayList<>();
-        for (int i = 1; i < converted.size(); i++) { segments.add(new Segment(converted.get(i - 1), converted.get(i))); }
-        fixedSegments.put(edge, segments);
+        // Pre-routed segments join the cell index at once, as crossings and label guards for other edges.
+        for (int i = 1; i < converted.size(); i++) { addSegment(new Segment(converted.get(i - 1), converted.get(i), edge)); }
     }
 
     /** With lenient routing, an edge that cannot be routed falls back to its direct segment. */
@@ -335,7 +333,9 @@ public final class FixedNodeRouter {
             nudge(pending);
             // Nudging replaced route points; rebuild the segment index from the final routes.
             List<Segment> inherited = new ArrayList<>();
-            for (Segment segment : routedSegments) { if (segment.owner == null) { inherited.add(segment); } }
+            for (Segment segment : routedSegments) {
+                if (segment.owner == null || prerouted.containsKey(segment.owner)) { inherited.add(segment); }
+            }
             reindexSegments(inherited);
             for (Route route : pending) { if (!route.fixed) { addSegments(route); } }
             for (Route route : pending) {
@@ -1190,12 +1190,6 @@ public final class FixedNodeRouter {
         }
         Rect guarded = rect.inflate(margins.edgeLabel);
         if (crossesRoutedSegment(guarded, route.edge)) { return null; }
-        for (Map.Entry<ElkEdge, List<Segment>> entry : fixedSegments.entrySet()) {
-            if (entry.getKey() == route.edge) { continue; }
-            for (Segment segment : entry.getValue()) {
-                if (guarded.crosses(segment.a, segment.b)) { return null; }
-            }
-        }
         for (int i = 1; i < points.size(); i++) {
             if (i == hostSegment) { continue; }
             if (guarded.crosses(points.get(i - 1), points.get(i))) { return null; }
@@ -1515,6 +1509,8 @@ public final class FixedNodeRouter {
         }
         if (extent == null) { extent = new Rect(0, 0, 0, 0, null, 0); }
         for (Segment segment : routedSegments) {
+            // Pre-routed connectors run between their nodes and never widen the drawing.
+            if (segment.owner != null && prerouted.containsKey(segment.owner)) { continue; }
             extent = new Rect(Math.min(extent.left, Math.min(segment.a.x, segment.b.x)),
                     Math.min(extent.top, Math.min(segment.a.y, segment.b.y)),
                     Math.max(extent.right, Math.max(segment.a.x, segment.b.x)),
@@ -1549,13 +1545,6 @@ public final class FixedNodeRouter {
                                 && side(segment.a, segment.b, a) * side(segment.a, segment.b, b) < -EPSILON) { count++; }
                     }
                 }
-            }
-        }
-        for (Map.Entry<ElkEdge, List<Segment>> entry : fixedSegments.entrySet()) {
-            if (entry.getKey() == current) { continue; }
-            for (Segment segment : entry.getValue()) {
-                if (side(a, b, segment.a) * side(a, b, segment.b) < -EPSILON
-                        && side(segment.a, segment.b, a) * side(segment.a, segment.b, b) < -EPSILON) { count++; }
             }
         }
         return count;
