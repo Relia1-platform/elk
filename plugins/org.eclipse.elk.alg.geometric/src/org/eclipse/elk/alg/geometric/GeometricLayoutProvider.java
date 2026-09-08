@@ -132,8 +132,9 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
             boolean anchorFound = anchorId.isEmpty();
             for (Vertex vertex : graph.vertices) { anchorFound |= GeometryGraph.identifier(vertex.node).equals(anchorId); }
             if (!anchorFound) { throw new IllegalArgumentException("Ring anchor does not exist: " + anchorId); }
+            boolean interactive = scope.getProperty(CoreOptions.INTERACTIVE);
             for (List<Vertex> component : components) {
-                Vertex root = graph.chooseRoot(component);
+                Vertex root = graph.chooseRoot(component, interactive);
                 GeometricMode mode = scope.getProperty(GeometricOptions.MODE);
                 int hanging = Math.max(0, scope.getProperty(GeometricOptions.TREE_HANGING));
                 if (mode == GeometricMode.AUTO) { mode = chooseMode(component, root, hanging); }
@@ -142,12 +143,12 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
                 switch (mode) {
                 case TREE:
                     Map<Vertex, Double> trunks = BalancedTreeLayout.place(graph, component, root,
-                            scope.getProperty(CoreOptions.DIRECTION), spacing, bus, hanging);
+                            scope.getProperty(CoreOptions.DIRECTION), spacing, bus, hanging, interactive);
                     hangingTrunks.putAll(trunks);
                     if (bus || !trunks.isEmpty()) { busComponents.add(component); }
                     break;
                 case RADIAL:
-                    BalancedRadialLayout.place(graph, component, root, spacing, 0, angle, clockwise);
+                    BalancedRadialLayout.place(graph, component, root, spacing, 0, angle, clockwise, interactive);
                     if (components.size() == 1) { center = root.node; }
                     break;
                 case RING:

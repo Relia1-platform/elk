@@ -22,6 +22,13 @@ import org.eclipse.elk.graph.properties.Property;
 /** A structural view. Every original edge remains in the ELK graph, including chords and parallel edges. */
 public final class GeometryGraph {
     public static final IProperty<Boolean> ROOT_HINT = new Property<>("org.eclipse.elk.geometric.root", false);
+    /** Set by the JSON importer on shapes whose input carried coordinates. */
+    public static final IProperty<Boolean> POSITION_PROVIDED = new Property<>("org.eclipse.elk.json.positionProvided");
+
+    /** Sort key of a child among its siblings, computed from previous positions. */
+    public interface ChildKey {
+        double of(Vertex parent, Vertex child);
+    }
 
     /** Coordinates refer to the node center; footprint extents include labels and ports. */
     public static final class Vertex {
@@ -161,7 +168,52 @@ public final class GeometryGraph {
         return result;
     }
 
+    /** Whether the node came with a position: from JSON, as an explicit position, or a nonzero one. */
+    public static boolean hasPreviousPosition(final Vertex vertex) {
+        Boolean provided = vertex.node.getProperty(POSITION_PROVIDED);
+        return provided != null ? provided : vertex.node.getX() != 0 || vertex.node.getY() != 0
+                || vertex.node.hasProperty(CoreOptions.POSITION);
+    }
+
+    /**
+     * Reorders the children of every vertex of a spanning tree by previous positions: children
+     * that had a position come first in key order, the others keep their relative order after
+     * them, so that a relayout keeps siblings where they were and appends new ones.
+     */
+    public void orderChildren(final List<Vertex> traversal, final ChildKey key) {
+        double[] keys = new double[vertices.size()];
+        for (Vertex parent : traversal) {
+            if (parent.children.size() < 2) { continue; }
+            List<Vertex> positioned = new ArrayList<>();
+            List<Vertex> fresh = new ArrayList<>();
+            for (Vertex child : parent.children) {
+                if (hasPreviousPosition(child)) {
+                    keys[child.index] = key.of(parent, child);
+                    positioned.add(child);
+                } else {
+                    fresh.add(child);
+                }
+            }
+            Collections.sort(positioned, (a, b) -> {
+                int byKey = Double.compare(keys[a.index], keys[b.index]);
+                return byKey != 0 ? byKey : Integer.compare(a.index, b.index);
+            });
+            parent.children.clear();
+            parent.children.addAll(positioned);
+            parent.children.addAll(fresh);
+        }
+    }
+
     public Vertex chooseRoot(final List<Vertex> component) {
+        return chooseRoot(component, false);
+    }
+
+    /**
+     * Chooses the root: the hint, a single source, or the best connected node. With previous
+     * centrality, equally connected candidates are decided by their distance to the previous
+     * centroid of the positioned nodes, so a relayout keeps the root a radial drawing had.
+     */
+    public Vertex chooseRoot(final List<Vertex> component, final boolean previousCentrality) {
         Vertex hint = null;
         Vertex source = null;
         int sourceCount = 0;
@@ -180,13 +232,25 @@ public final class GeometryGraph {
         if (hint != null || sourceCount == 1) {
             return hint != null ? hint : source;
         }
+        double cx = 0;
+        double cy = 0;
+        int positioned = 0;
+        if (previousCentrality) {
+            for (Vertex vertex : component) {
+                if (hasPreviousPosition(vertex)) { cx += vertex.x; cy += vertex.y; positioned++; }
+            }
+            cx /= Math.max(1, positioned);
+            cy /= Math.max(1, positioned);
+        }
         Vertex best = component.get(0);
         for (Vertex vertex : component) {
-            if (vertex.outgoing.size() > best.outgoing.size()
-                    || vertex.outgoing.size() == best.outgoing.size()
-                    && (vertex.neighbors.size() > best.neighbors.size()
-                    || vertex.neighbors.size() == best.neighbors.size()
-                    && identifier(vertex.node).compareTo(identifier(best.node)) < 0)) {
+            int byOutgoing = Integer.compare(vertex.outgoing.size(), best.outgoing.size());
+            int byDegree = Integer.compare(vertex.neighbors.size(), best.neighbors.size());
+            int byCentrality = positioned > 0 ? Double.compare(Math.hypot(best.x - cx, best.y - cy),
+                    Math.hypot(vertex.x - cx, vertex.y - cy)) : 0;
+            int byId = identifier(best.node).compareTo(identifier(vertex.node));
+            if (byOutgoing > 0 || byOutgoing == 0 && (byDegree > 0 || byDegree == 0
+                    && (byCentrality > 0 || byCentrality == 0 && byId > 0))) {
                 best = vertex;
             }
         }

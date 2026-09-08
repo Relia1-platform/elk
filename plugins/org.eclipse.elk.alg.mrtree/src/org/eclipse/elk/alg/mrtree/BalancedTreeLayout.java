@@ -79,7 +79,27 @@ public final class BalancedTreeLayout {
      */
     public static Map<Vertex, Double> place(final GeometryGraph data, final List<Vertex> component, final Vertex root,
             final Direction direction, final double spacing, final boolean busRouting, final int hangingThreshold) {
+        return place(data, component, root, direction, spacing, busRouting, hangingThreshold, false);
+    }
+
+    /** Interactive placement orders siblings by their previous coordinate across the tree axis. */
+    public static Map<Vertex, Double> place(final GeometryGraph data, final List<Vertex> component, final Vertex root,
+            final Direction direction, final double spacing, final boolean busRouting, final int hangingThreshold,
+            final boolean interactive) {
         List<Vertex> traversal = data.spanningTree(component, root);
+        if (interactive) {
+            boolean horizontal = horizontal(direction);
+            boolean reversed = direction == Direction.UP || direction == Direction.LEFT;
+            data.orderChildren(traversal, (parent, child) -> {
+                double across = horizontal ? child.y : child.x;
+                if (hangingThreshold > 0 && child.children.isEmpty() && leafCount(parent) > hangingThreshold) {
+                    // Hanging leaves fill their block row by row: previous row first, then position in the row.
+                    double along = horizontal ? child.x : child.y;
+                    return (reversed ? -along : along) * 1e7 + across;
+                }
+                return across;
+            });
+        }
         Profile[] profiles = new Profile[data.vertices.size()];
         double[] offsets = new double[data.vertices.size()];
         double[] labelFront = new double[data.vertices.size()];
@@ -227,6 +247,12 @@ public final class BalancedTreeLayout {
         return trunks;
     }
 
+    private static int leafCount(final Vertex vertex) {
+        int count = 0;
+        for (Vertex child : vertex.children) { if (child.children.isEmpty()) { count++; } }
+        return count;
+    }
+
     /** Label extents of tree edges measured along and across a stub, keyed by the child. */
     private static Map<Vertex, double[]> stubLabels(final GeometryGraph data, final List<Vertex> component,
             final Direction direction, final EdgeLabelReservation.Margins margins) {
@@ -254,9 +280,9 @@ public final class BalancedTreeLayout {
     }
 
     /**
-     * Lays the block out: rows of one leaf per trunk side, the number of rows chosen so that the
-     * block is as square as possible, stubs long enough for the widest label, and one contour
-     * band per level the block covers.
+     * Lays the block out: rows of one leaf per trunk side filled row by row, the number of rows
+     * chosen so that the block is as square as possible, stubs long enough for the widest label,
+     * and one contour band per level the block covers.
      */
     private static void build(final Block block, final Direction direction, final double spacing, final double step,
             final double after, final EdgeLabelReservation.Margins margins, final Map<Vertex, double[]> stubLabels) {
@@ -295,10 +321,12 @@ public final class BalancedTreeLayout {
         }
         int trunks = (count + 2 * rows - 1) / (2 * rows);
         double width = trunks * trunkPitch - spacing;
+        // Leaves fill the block row by row, left to right, so that reading order and previous
+        // positions agree; the last row may be shorter.
         for (int j = 0; j < count; j++) {
-            int trunk = j / (2 * rows);
-            int slot = j % (2 * rows);
-            int row = slot / 2;
+            int row = j / (2 * trunks);
+            int slot = j % (2 * trunks);
+            int trunk = slot / 2;
             boolean lower = slot % 2 == 0;
             Vertex leaf = block.leaves.get(j);
             double trunkAxis = -width / 2 + column + stub + trunk * trunkPitch;

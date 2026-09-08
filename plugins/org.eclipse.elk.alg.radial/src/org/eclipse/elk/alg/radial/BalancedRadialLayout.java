@@ -13,7 +13,34 @@ public final class BalancedRadialLayout {
 
     public static void place(final GeometryGraph data, final List<Vertex> component, final Vertex root,
             final double spacing, final double minimumRadius, final double startAngle, final boolean clockwise) {
+        place(data, component, root, spacing, minimumRadius, startAngle, clockwise, false);
+    }
+
+    /**
+     * Interactive placement orders the children of every vertex by their previous angle around the
+     * root, within the parent's sector, so that a relayout keeps the angular order of the drawing.
+     */
+    public static void place(final GeometryGraph data, final List<Vertex> component, final Vertex root,
+            final double spacing, final double minimumRadius, final double startAngle, final boolean clockwise,
+            final boolean interactive) {
         List<Vertex> traversal = data.spanningTree(component, root);
+        if (interactive && GeometryGraph.hasPreviousPosition(root)) {
+            double rootX = root.x;
+            double rootY = root.y;
+            double orientation = clockwise ? 1 : -1;
+            data.orderChildren(traversal, (parent, child) -> {
+                double angle = Math.atan2(child.y - rootY, child.x - rootX);
+                if (parent == root) {
+                    // The first sector is centered on the start angle.
+                    double turn = orientation * (angle - startAngle) + Math.PI / Math.max(1, parent.children.size());
+                    return turn - 2 * Math.PI * Math.floor(turn / (2 * Math.PI));
+                }
+                double parentAngle = Math.atan2(parent.y - rootY, parent.x - rootX);
+                double relative = angle - parentAngle;
+                relative -= 2 * Math.PI * Math.floor((relative + Math.PI) / (2 * Math.PI));
+                return orientation * relative;
+            });
+        }
         double[] starts = new double[data.vertices.size()];
         double[] sectors = new double[data.vertices.size()];
         sectors[root.index] = 2 * Math.PI;

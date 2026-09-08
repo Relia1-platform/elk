@@ -9,13 +9,10 @@ import org.eclipse.elk.alg.common.EdgeLabelReservation;
 import org.eclipse.elk.alg.common.GeometryGraph;
 import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
 import org.eclipse.elk.core.options.CoreOptions;
-import org.eclipse.elk.graph.properties.IProperty;
-import org.eclipse.elk.graph.properties.Property;
 
 /** A ring's only geometric degrees of freedom are its common radius and rigid rotation. */
 public final class RingLayoutKernel {
     // Importers distinguish an explicitly positioned (0, 0) from an unpositioned new node.
-    private static final IProperty<Boolean> POSITION_PROVIDED = new Property<>("org.eclipse.elk.json.positionProvided");
     private RingLayoutKernel() { }
 
     public static List<Vertex> order(final List<Vertex> component, final String anchor) {
@@ -73,20 +70,21 @@ public final class RingLayoutKernel {
             double cy = 0;
             int positioned = 0;
             for (Vertex vertex : order) {
-                if (hasPreviousPosition(vertex)) { cx += vertex.x; cy += vertex.y; positioned++; }
+                if (GeometryGraph.hasPreviousPosition(vertex)) { cx += vertex.x; cy += vertex.y; positioned++; }
             }
             cx /= Math.max(1, positioned);
             cy /= Math.max(1, positioned);
-            double real = 0;
-            double imaginary = 0;
-            for (int i = 0; i < count; i++) {
-                if (!hasPreviousPosition(order.get(i))) { continue; }
-                double oldX = order.get(i).x - cx;
-                double oldY = order.get(i).y - cy;
-                real += oldX * Math.cos(i * step) + oldY * Math.sin(i * step);
-                imaginary += oldY * Math.cos(i * step) - oldX * Math.sin(i * step);
+            // The cycle may be traversed either way; the orientation that fits the previous
+            // positions better is kept, with the anchor staying first.
+            double[] fit = fit(order, step, cx, cy);
+            Collections.reverse(order.subList(1, count));
+            double[] reversed = fit(order, step, cx, cy);
+            if (Math.hypot(reversed[0], reversed[1]) <= Math.hypot(fit[0], fit[1]) + 1e-9) {
+                Collections.reverse(order.subList(1, count));
+            } else {
+                fit = reversed;
             }
-            if (Math.hypot(real, imaginary) > 1e-8) { angle = Math.atan2(imaginary, real); }
+            if (Math.hypot(fit[0], fit[1]) > 1e-8) { angle = Math.atan2(fit[1], fit[0]); }
         }
         for (int i = 0; i < count; i++) {
             order.get(i).x = Math.cos(angle + i * step);
@@ -106,9 +104,17 @@ public final class RingLayoutKernel {
         return radius;
     }
 
-    private static boolean hasPreviousPosition(final Vertex vertex) {
-        Boolean provided = vertex.node.getProperty(POSITION_PROVIDED);
-        return provided != null ? provided : vertex.node.getX() != 0 || vertex.node.getY() != 0
-                || vertex.node.hasProperty(CoreOptions.POSITION);
+    /** Correlation of the previous positions with the equal-angle placement, as a complex number. */
+    private static double[] fit(final List<Vertex> order, final double step, final double cx, final double cy) {
+        double real = 0;
+        double imaginary = 0;
+        for (int i = 0; i < order.size(); i++) {
+            if (!GeometryGraph.hasPreviousPosition(order.get(i))) { continue; }
+            double oldX = order.get(i).x - cx;
+            double oldY = order.get(i).y - cy;
+            real += oldX * Math.cos(i * step) + oldY * Math.sin(i * step);
+            imaginary += oldY * Math.cos(i * step) - oldX * Math.sin(i * step);
+        }
+        return new double[] {real, imaginary};
     }
 }
