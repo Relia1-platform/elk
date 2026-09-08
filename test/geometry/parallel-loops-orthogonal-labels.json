@@ -1,0 +1,114 @@
+{
+  "id": "parallel-loops-orthogonal-labels",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    "elk.geometric.routing": "ORTHOGONAL",
+    "elk.geometric.mode": "TREE"
+  },
+  "children": [
+    {
+      "id": "a",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "c",
+      "width": 40,
+      "height": 30
+    }
+  ],
+  "edges": [
+    {
+      "id": "ab",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "b"
+      ],
+      "labels": [
+        {
+          "id": "ab-label",
+          "text": "ab-label",
+          "width": 60,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "ab2",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "b"
+      ],
+      "labels": [
+        {
+          "id": "ab2-label",
+          "text": "ab2-label",
+          "width": 48,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "bb",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b"
+      ],
+      "labels": [
+        {
+          "id": "bb-label",
+          "text": "bb-label",
+          "width": 70,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "bc",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "c"
+      ],
+      "labels": [
+        {
+          "id": "bc-label",
+          "text": "bc-label",
+          "width": 55,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "cc",
+      "sources": [
+        "c"
+      ],
+      "targets": [
+        "c"
+      ],
+      "labels": [
+        {
+          "id": "cc-label",
+          "text": "wide loop",
+          "width": 120,
+          "height": 18
+        }
+      ]
+    }
+  ]
+}

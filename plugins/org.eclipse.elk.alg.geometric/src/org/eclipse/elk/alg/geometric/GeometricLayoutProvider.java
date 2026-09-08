@@ -16,6 +16,7 @@ import org.eclipse.elk.alg.common.TreeBusRouter;
 import org.eclipse.elk.alg.geometric.options.GeometricMode;
 import org.eclipse.elk.alg.geometric.options.GeometricOptions;
 import org.eclipse.elk.alg.geometric.options.GeometricOrder;
+import org.eclipse.elk.alg.geometric.options.GeometricRouting;
 import org.eclipse.elk.alg.geometric.options.TreeRouting;
 import org.eclipse.elk.alg.layered.LayeredLayoutProvider;
 import org.eclipse.elk.alg.layered.options.FixedAlignment;
@@ -180,6 +181,7 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
             final boolean lenient) {
         FixedNodeRouter router = new FixedNodeRouter(scope);
         router.setLenient(lenient);
+        router.setOrthogonal(scope.getProperty(GeometricOptions.ROUTING) == GeometricRouting.ORTHOGONAL);
         Direction direction = scope.getProperty(CoreOptions.DIRECTION);
         for (List<Vertex> component : busComponents) {
             for (Map.Entry<ElkEdge, TreeBusRouter.Connector> entry

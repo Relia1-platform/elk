@@ -1,0 +1,150 @@
+{
+  "id": "fixed-orthogonal-labels",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    "elk.geometric.routing": "ORTHOGONAL",
+    "elk.geometric.mode": "FIXED"
+  },
+  "children": [
+    {
+      "id": "a",
+      "width": 40,
+      "height": 30,
+      "x": 24,
+      "y": 24
+    },
+    {
+      "id": "b",
+      "width": 40,
+      "height": 30,
+      "x": 224,
+      "y": 24
+    },
+    {
+      "id": "c",
+      "width": 60,
+      "height": 40,
+      "x": 114,
+      "y": 14
+    },
+    {
+      "id": "d",
+      "width": 40,
+      "height": 30,
+      "x": 24,
+      "y": 164
+    },
+    {
+      "id": "e",
+      "width": 40,
+      "height": 30,
+      "x": 224,
+      "y": 164
+    },
+    {
+      "id": "f",
+      "width": 40,
+      "height": 30,
+      "x": 124,
+      "y": 214
+    }
+  ],
+  "edges": [
+    {
+      "id": "ab",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "b"
+      ],
+      "labels": [
+        {
+          "id": "ab-label",
+          "text": "ab-label",
+          "width": 56,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "de",
+      "sources": [
+        "d"
+      ],
+      "targets": [
+        "e"
+      ],
+      "labels": [
+        {
+          "id": "de-label",
+          "text": "de-label",
+          "width": 70,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "ad",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "d"
+      ],
+      "labels": [
+        {
+          "id": "ad-label",
+          "text": "ad-label",
+          "width": 40,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "cf",
+      "sources": [
+        "c"
+      ],
+      "targets": [
+        "f"
+      ],
+      "labels": [
+        {
+          "id": "cf-label",
+          "text": "cf-label",
+          "width": 48,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "be",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "e"
+      ]
+    },
+    {
+      "id": "bf",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "f"
+      ],
+      "labels": [
+        {
+          "id": "bf-label",
+          "text": "bf-label",
+          "width": 44,
+          "height": 16
+        }
+      ]
+    }
+  ]
+}

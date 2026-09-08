@@ -411,7 +411,7 @@ public class GeometricLabelTest {
         return result;
     }
 
-    private static List<String> geometry(final ElkNode graph) {
+    static List<String> geometry(final ElkNode graph) {
         List<String> result = new ArrayList<>();
         result.add("size " + graph.getWidth() + " " + graph.getHeight());
         List<ElkNode> nodes = new ArrayList<>(graph.getChildren());

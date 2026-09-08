@@ -4,6 +4,7 @@ package org.eclipse.elk.alg.geometric
 import org.eclipse.elk.alg.geometric.GeometricLayoutProvider
 import org.eclipse.elk.alg.geometric.options.GeometricMode
 import org.eclipse.elk.alg.geometric.options.GeometricOrder
+import org.eclipse.elk.alg.geometric.options.GeometricRouting
 import org.eclipse.elk.alg.geometric.options.TreeRouting
 import org.eclipse.elk.core.math.ElkPadding
 import org.eclipse.elk.core.options.Direction
@@ -51,6 +52,7 @@ algorithm geometric(GeometricLayoutProvider) {
     supports clockwise
     supports ring.anchorId
     supports tree.routing
+    supports routing
 }
 
 option mode: GeometricMode {
@@ -64,6 +66,12 @@ option root: boolean {
     description "Select this node as the main root of its connected component."
     default = false
     targets nodes
+}
+option routing: GeometricRouting {
+    label "Geometric Routing"
+    description "POLYLINE draws straight connectors; ORTHOGONAL draws axis-aligned connectors that leave and enter nodes through their facing sides, spread along shared sides and nudged apart in shared channels."
+    default = GeometricRouting.POLYLINE
+    targets parents
 }
 option order: GeometricOrder {
     label "Geometric Order"

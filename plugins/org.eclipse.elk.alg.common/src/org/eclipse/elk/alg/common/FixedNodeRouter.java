@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.Set;
 
 import org.eclipse.elk.alg.common.EdgeLabelReservation.Margins;
@@ -61,6 +62,11 @@ public final class FixedNodeRouter {
     private final Map<ElkEdge, Integer> preferredSegments = new HashMap<>();
     private ElkEdge current;
     private boolean lenient;
+    private boolean orthogonal;
+    /** Spread anchors for free endpoints in orthogonal mode: edge id + role to {sideDx, sideDy, offset}. */
+    private final Map<String, double[]> spreads = new HashMap<>();
+    /** Sides chosen by probing in orthogonal mode: edge id + role to the outward side vector. */
+    private final Map<String, double[]> chosenSides = new HashMap<>();
     private int routing;
     private final double clearance;
     private final double cellSize;
@@ -159,6 +165,13 @@ public final class FixedNodeRouter {
     /** With lenient routing, an edge that cannot be routed falls back to its direct segment. */
     public void setLenient(final boolean lenient) { this.lenient = lenient; }
 
+    /**
+     * Orthogonal connectors: free endpoints leave the center of the facing side, spread along it
+     * when several edges share a side, routes follow a sparse orthogonal grid with a bend penalty,
+     * overlapping parallel segments are nudged apart, and labels are placed after all routes exist.
+     */
+    public void setOrthogonal(final boolean orthogonal) { this.orthogonal = orthogonal; }
+
     public void route() {
         List<ElkEdge> edges = new ArrayList<>(graph.graph.getContainedEdges());
         // Stable IDs for edges are useful even when node order is intentionally model order.
@@ -169,6 +182,11 @@ public final class FixedNodeRouter {
             }
             directLines.add(new Segment(center(edge.getSources().get(0)), center(edge.getTargets().get(0))));
         }
+        if (orthogonal) {
+            chooseSides(edges);
+            computeSpreads(edges);
+        }
+        List<Route> pending = new ArrayList<>();
         Map<String, Integer> lanes = new HashMap<>();
         for (routing = 0; routing < edges.size(); routing++) {
             ElkEdge edge = edges.get(routing);
@@ -207,37 +225,100 @@ public final class FixedNodeRouter {
                     route.incoming = new ArrayList<>();
                     route.points = new ArrayList<>();
                     route.points.add(route.start.anchor);
+                    if (orthogonal) { route.points.add(new Point(route.end.anchor.x, route.start.anchor.y)); }
                     route.points.add(route.end.anchor);
                 }
             }
             simplify(route.points);
-            try {
-                placeLabels(route);
-            } catch (IllegalArgumentException failure) {
-                if (!lenient) { throw failure; }
-                Candidate fallback = bestEffort(route);
-                if (fallback != null) { apply(fallback, edge.getLabels()); }
-            }
-            simplify(route.points);
-            List<Point> points = route.points;
-            if (!route.fixed) {
-                for (int i = 1; i < points.size(); i++) {
-                    routedSegments.add(new Segment(points.get(i - 1), points.get(i)));
+            if (orthogonal) {
+                // Labels that fit the route now are reserved so that later routes and self-loops
+                // leave them room; they are placed again only when nudging moves the route.
+                route.index = routing;
+                pending.add(route);
+                if (!route.fixed) { addSegments(route); }
+                if (!edge.getLabels().isEmpty()) {
+                    Candidate tentative = onRoute(route);
+                    if (tentative != null) { route.reserved = apply(tentative, edge.getLabels()); }
                 }
-                // Polyline routes have no shared hyperedge junctions; discard geometry from earlier layouts.
-                edge.setProperty(CoreOptions.JUNCTION_POINTS, null);
+                continue;
             }
-            edge.getSections().clear();
-            ElkEdgeSection section = ElkGraphUtil.createEdgeSection(edge);
-            section.setIncomingShape(source);
-            section.setOutgoingShape(target);
-            section.setStartLocation(points.get(0).x, points.get(0).y);
-            section.setEndLocation(points.get(points.size() - 1).x, points.get(points.size() - 1).y);
-            for (int i = 1; i < points.size() - 1; i++) {
-                ElkGraphUtil.createBendPoint(section, points.get(i).x, points.get(i).y);
+            labels(route);
+            emit(route);
+        }
+        if (orthogonal) {
+            // Tentative labels steered the routes; they are withdrawn so that nudging is free to
+            // move segments, and every label is placed again on the final routes.
+            for (Route route : pending) {
+                if (route.reserved != null) { unreserve(route.reserved); route.reserved = null; }
+            }
+            nudge(pending);
+            // Nudging replaced route points; rebuild the segment index from the final routes.
+            List<Segment> inherited = new ArrayList<>();
+            for (Segment segment : routedSegments) { if (segment.owner == null) { inherited.add(segment); } }
+            routedSegments.clear();
+            routedSegments.addAll(inherited);
+            for (Route route : pending) { if (!route.fixed) { addSegments(route); } }
+            for (Route route : pending) {
+                routing = route.index;
+                current = route.edge;
+                if (!route.edge.getLabels().isEmpty()) {
+                    if (!route.fixed) { removeSegments(route.edge); }
+                    labels(route);
+                    if (!route.fixed) { addSegments(route); }
+                }
+                emitSection(route);
             }
         }
         current = null;
+    }
+
+    private void labels(final Route route) {
+        try {
+            placeLabels(route);
+        } catch (IllegalArgumentException failure) {
+            if (!lenient) { throw failure; }
+            Candidate fallback = bestEffort(route);
+            if (fallback != null) { apply(fallback, route.edge.getLabels()); }
+        }
+        simplify(route.points);
+    }
+
+    private void addSegments(final Route route) {
+        List<Point> points = route.points;
+        for (int i = 1; i < points.size(); i++) {
+            routedSegments.add(new Segment(points.get(i - 1), points.get(i), route.edge));
+        }
+    }
+
+    private void removeSegments(final ElkEdge edge) {
+        List<Segment> kept = new ArrayList<>();
+        for (Segment segment : routedSegments) { if (segment.owner != edge) { kept.add(segment); } }
+        routedSegments.clear();
+        routedSegments.addAll(kept);
+    }
+
+    private void emit(final Route route) {
+        if (!route.fixed) {
+            addSegments(route);
+            // Polyline routes have no shared hyperedge junctions; discard geometry from earlier layouts.
+            route.edge.setProperty(CoreOptions.JUNCTION_POINTS, null);
+        }
+        emitSection(route);
+    }
+
+    private void emitSection(final Route route) {
+        ElkEdge edge = route.edge;
+        List<Point> points = route.points;
+        if (!route.fixed && orthogonal) { edge.setProperty(CoreOptions.JUNCTION_POINTS, null); }
+        edge.getSections().clear();
+        ElkEdgeSection section = ElkGraphUtil.createEdgeSection(edge);
+        section.setIncomingShape(route.source);
+        section.setOutgoingShape(route.target);
+        section.setStartLocation(points.get(0).x, points.get(0).y);
+        section.setEndLocation(points.get(points.size() - 1).x, points.get(points.size() - 1).y);
+        for (int i = 1; i < points.size() - 1; i++) {
+            ElkGraphUtil.createBendPoint(section, points.get(i).x, points.get(i).y);
+        }
     }
 
     /** Routes an edge between two different nodes: gateways, hierarchy waypoints, lane offsets. */
@@ -247,8 +328,8 @@ public final class FixedNodeRouter {
         Vertex sv = route.sv;
         Vertex tv = route.tv;
         ElkEdge edge = route.edge;
-        route.start = endpoint(source, tc, sv);
-        route.end = endpoint(target, sc, tv);
+        route.start = spread(endpoint(source, toward(edge, "s", sc, tc), sv), edge, "s");
+        route.end = spread(endpoint(target, toward(edge, "t", tc, sc), tv), edge, "t");
         excludeAncestors(source, route.excluded);
         excludeAncestors(target, route.excluded);
         route.outgoing = hierarchyGateways(source, tc);
@@ -290,7 +371,7 @@ public final class FixedNodeRouter {
             }
             points = bestPath;
         }
-        if (lane > 0 && points.size() == 2) {
+        if (lane > 0 && points.size() == 2 && !orthogonal) {
             Point a = points.get(0);
             Point b = points.get(1);
             double length = distance(a, b);
@@ -304,6 +385,145 @@ public final class FixedNodeRouter {
         points.add(0, route.start.anchor);
         points.add(route.end.anchor);
         route.points = points;
+        if (orthogonal) { dejog(route.points, source, target); }
+    }
+
+    /** The direction an endpoint faces: the side chosen by probing, or the other endpoint. */
+    private Point toward(final ElkEdge edge, final String role, final Point own, final Point other) {
+        double[] side = chosenSides.get(edge.getIdentifier() + ":" + role);
+        return side == null ? other : new Point(own.x + side[0], own.y + side[1]);
+    }
+
+    /**
+     * Orthogonal mode, before any route exists: every free edge is probed from the sides facing
+     * the other endpoint, and when that connector has to turn right after leaving a node, the
+     * sides facing the first and last turn are tried. An alternative wins only by a clear margin,
+     * so hubs keep their natural fan-out. Chosen sides drive the anchor spreading and the routes.
+     */
+    private void chooseSides(final List<ElkEdge> edges) {
+        for (routing = 0; routing < edges.size(); routing++) {
+            ElkEdge edge = edges.get(routing);
+            if (prerouted.containsKey(edge)) { continue; }
+            ElkConnectableShape source = edge.getSources().get(0);
+            ElkConnectableShape target = edge.getTargets().get(0);
+            if (GeometryGraph.endpointNode(source) == GeometryGraph.endpointNode(target)) { continue; }
+            Point sc = center(source);
+            Point tc = center(target);
+            if (!hierarchyGateways(source, tc).isEmpty() || !hierarchyGateways(target, sc).isEmpty()) { continue; }
+            current = edge;
+            Set<ElkNode> excluded = new HashSet<>();
+            excludeAncestors(source, excluded);
+            excludeAncestors(target, excluded);
+            Endpoint start = endpoint(source, tc, graph.endpoint(source));
+            Endpoint end = endpoint(target, sc, graph.endpoint(target));
+            if (straightPossible(source, target, start, end) && visible(start.gateway, end.gateway, excluded)) {
+                // Facing sides that overlap get a straight connector once the anchors are aligned.
+                chosenSides.put(edge.getIdentifier() + ":s", sideVector(source, start));
+                chosenSides.put(edge.getIdentifier() + ":t", sideVector(target, end));
+                continue;
+            }
+            List<Point> points;
+            try {
+                points = shortest(start.gateway, end.gateway, excluded);
+            } catch (IllegalArgumentException blocked) {
+                continue;
+            }
+            points.add(0, start.anchor);
+            points.add(end.anchor);
+            dejog(points, source, target);
+            Endpoint[] best = reconsiderSides(source, target, start, end, points, excluded);
+            chosenSides.put(edge.getIdentifier() + ":s", sideVector(source, best[0]));
+            chosenSides.put(edge.getIdentifier() + ":t", sideVector(target, best[1]));
+        }
+        current = null;
+    }
+
+    /** Facing sides whose extents overlap enough to hold an aligned anchor on both nodes. */
+    private boolean straightPossible(final ElkConnectableShape source, final ElkConnectableShape target,
+            final Endpoint start, final Endpoint end) {
+        if (source instanceof ElkPort || target instanceof ElkPort) { return false; }
+        double[] a = sideVector(source, start);
+        double[] b = sideVector(target, end);
+        if (a[0] != -b[0] || a[1] != -b[1]) { return false; }
+        boolean vertical = a[0] != 0;
+        Point sc = center(source);
+        Point tc = center(target);
+        double sHalf = (vertical ? source.getHeight() : source.getWidth()) / 2;
+        double tHalf = (vertical ? target.getHeight() : target.getWidth()) / 2;
+        double sMine = vertical ? sc.y : sc.x;
+        double tMine = vertical ? tc.y : tc.x;
+        double low = Math.max(sMine - sHalf, tMine - tHalf);
+        double high = Math.min(sMine + sHalf, tMine + tHalf);
+        double margin = Math.max(4, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE));
+        return high - low >= 2 * margin;
+    }
+
+    private double[] sideVector(final ElkConnectableShape shape, final Endpoint endpoint) {
+        Point c = center(shape);
+        double ax = endpoint.anchor.x - c.x;
+        double ay = endpoint.anchor.y - c.y;
+        boolean horizontal = Math.abs(ax) >= Math.abs(ay);
+        return new double[] {horizontal ? (ax >= 0 ? 1 : -1) : 0, horizontal ? 0 : (ay >= 0 ? 1 : -1)};
+    }
+
+    /**
+     * Probes alternative sides for a connector that turns right after leaving a node. Returns the
+     * start and end endpoints of the cheapest connector by length plus bend penalty; an alternative
+     * must beat the facing sides by half a bend penalty.
+     */
+    private Endpoint[] reconsiderSides(final ElkConnectableShape source, final ElkConnectableShape target,
+            final Endpoint start, final Endpoint end, final List<Point> points, final Set<ElkNode> excluded) {
+        Endpoint[] result = {start, end};
+        if (bendCount(points) < 2 || points.size() < 4) { return result; }
+        double bendPenalty = 2 * Math.max(clearance, 4);
+        Point altStart = alternative(source, start, points.get(1), points.get(2));
+        Point altEnd = alternative(target, end, points.get(points.size() - 2), points.get(points.size() - 3));
+        double bestCost = polylineLength(points) + bendPenalty * bendCount(points) - bendPenalty / 2;
+        for (int option = 1; option < 4; option++) {
+            boolean useStart = (option & 1) != 0;
+            boolean useEnd = (option & 2) != 0;
+            if (useStart && altStart == null || useEnd && altEnd == null) { continue; }
+            Endpoint candidateStart = useStart ? endpoint(source, altStart, graph.endpoint(source)) : start;
+            Endpoint candidateEnd = useEnd ? endpoint(target, altEnd, graph.endpoint(target)) : end;
+            try {
+                List<Point> candidate = shortest(candidateStart.gateway, candidateEnd.gateway, excluded);
+                candidate.add(0, candidateStart.anchor);
+                candidate.add(candidateEnd.anchor);
+                dejog(candidate, source, target);
+                double cost = polylineLength(candidate) + bendPenalty * bendCount(candidate);
+                if (cost < bestCost - EPSILON) {
+                    bestCost = cost;
+                    result[0] = candidateStart;
+                    result[1] = candidateEnd;
+                }
+            } catch (IllegalArgumentException blocked) {
+                // Keep the connector from the facing sides.
+            }
+        }
+        return result;
+    }
+
+    /**
+     * A point beyond the side of the shape that faces the direction of a route's first turn, or
+     * null when that is the side the route already uses or the endpoint is a port.
+     */
+    private Point alternative(final ElkConnectableShape shape, final Endpoint current, final Point from,
+            final Point to) {
+        if (shape instanceof ElkPort) { return null; }
+        Point c = center(shape);
+        double dx = to.x - from.x;
+        double dy = to.y - from.y;
+        if (Math.abs(dx) < EPSILON && Math.abs(dy) < EPSILON) { return null; }
+        boolean horizontal = Math.abs(dx) >= Math.abs(dy);
+        double sx = horizontal ? (dx > 0 ? 1 : -1) : 0;
+        double sy = horizontal ? 0 : (dy > 0 ? 1 : -1);
+        double ax = current.anchor.x - c.x;
+        double ay = current.anchor.y - c.y;
+        boolean currentHorizontal = Math.abs(ax) >= Math.abs(ay);
+        double cx = currentHorizontal ? (ax > 0 ? 1 : -1) : 0;
+        double cy = currentHorizontal ? 0 : (ay > 0 ? 1 : -1);
+        if (cx == sx && cy == sy) { return null; }
+        return new Point(c.x + sx, c.y + sy);
     }
 
     private void excludeAncestors(final ElkConnectableShape shape, final Set<ElkNode> excluded) {
@@ -380,6 +600,10 @@ public final class FixedNodeRouter {
             else if (side == PortSide.WEST) { dx = -1; dy = 0; }
             else if (side == PortSide.EAST) { dx = 1; dy = 0; }
         } else {
+            if (orthogonal) {
+                // Orthogonal connectors leave through the center of the side facing the other end.
+                if (Math.abs(dx) >= Math.abs(dy)) { dx = dx >= 0 ? 1 : -1; dy = 0; } else { dy = dy >= 0 ? 1 : -1; dx = 0; }
+            }
             double factor = Math.min(shape.getWidth() / (2 * Math.max(EPSILON, Math.abs(dx))),
                     shape.getHeight() / (2 * Math.max(EPSILON, Math.abs(dy))));
             anchor = new Point(center.x + dx * factor, center.y + dy * factor);
@@ -415,6 +639,7 @@ public final class FixedNodeRouter {
         Rect rect = rectangles.get(node);
         if (rect == null) { throw new IllegalArgumentException("A scope self-loop needs an enclosing layout scope"); }
         double gap = clearance + (lane + 1) * Math.max(8, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE));
+        if (orthogonal) { return sideLoop(edge, source, target, rect, gap, excluded); }
         double width = Math.max(0, (loopExtent(edge, true) - (rect.right - rect.left + 2 * gap)) / 2);
         double height = Math.max(0, (loopExtent(edge, false) - (rect.bottom - rect.top + 2 * gap)) / 2);
         Point east = new Point(c.x + node.getWidth(), c.y);
@@ -485,6 +710,71 @@ public final class FixedNodeRouter {
         throw failure;
     }
 
+    /**
+     * Orthogonal self-loops hang on one side of the node: they leave that side a little below or
+     * right of its center, run out by the loop gap, turn, and come back into the same side the same
+     * distance above or left of the center. Labels sit beside the far segment, outside the loop.
+     * Sides are tried east, south, west, north, preferring free sides that block no pending edge.
+     */
+    private List<Point> sideLoop(final ElkEdge edge, final ElkConnectableShape source,
+            final ElkConnectableShape target, final Rect rect, final double gap, final Set<ElkNode> excluded) {
+        ElkNode node = GeometryGraph.endpointNode(source);
+        Point c = center(node);
+        double edgeGap = Math.max(4, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE));
+        List<Object[]> candidates = new ArrayList<>();
+        for (int side = 0; side < 4; side++) {
+            boolean vertical = side == 0 || side == 2;
+            double halfSide = (vertical ? node.getHeight() : node.getWidth()) / 2;
+            double extent = loopExtent(edge, !vertical);
+            double delta = Math.max(edgeGap, extent / 2);
+            delta = Math.min(delta, Math.max(2, halfSide - 2));
+            Point toward = side == 0 ? new Point(c.x + node.getWidth(), c.y) : side == 1 ? new Point(c.x, c.y + node.getHeight())
+                    : side == 2 ? new Point(c.x - node.getWidth(), c.y) : new Point(c.x, c.y - node.getHeight());
+            double tx = vertical ? 0 : 1;
+            double ty = vertical ? 1 : 0;
+            Endpoint centerStart = endpoint(source, toward, graph.endpoint(source));
+            Endpoint centerEnd = endpoint(target, toward, graph.endpoint(target));
+            Endpoint start = new Endpoint(new Point(centerStart.anchor.x + tx * delta, centerStart.anchor.y + ty * delta),
+                    new Point(centerStart.gateway.x + tx * delta, centerStart.gateway.y + ty * delta));
+            Endpoint end = new Endpoint(new Point(centerEnd.anchor.x - tx * delta, centerEnd.anchor.y - ty * delta),
+                    new Point(centerEnd.gateway.x - tx * delta, centerEnd.gateway.y - ty * delta));
+            double far = side == 0 ? rect.right + gap : side == 1 ? rect.bottom + gap : side == 2 ? rect.left - gap : rect.top - gap;
+            List<Point> via = new ArrayList<>();
+            via.add(vertical ? new Point(far, start.gateway.y) : new Point(start.gateway.x, far));
+            via.add(vertical ? new Point(far, end.gateway.y) : new Point(end.gateway.x, far));
+            boolean blocked = false;
+            for (Point point : via) { blocked |= blockingRectangle(point, point, excluded) != null; }
+            int pending = 0;
+            Point previous = start.gateway;
+            for (Point point : via) { pending = pendingCrossings(previous, point, pending); previous = point; }
+            pending = pendingCrossings(previous, end.gateway, pending);
+            candidates.add(new Object[] {blocked ? 1 : 0, pending, side, start, end, via});
+        }
+        Collections.sort(candidates, (p, q) -> {
+            int byBlocked = Integer.compare((Integer) p[0], (Integer) q[0]);
+            if (byBlocked != 0) { return byBlocked; }
+            int byPending = Integer.compare((Integer) p[1], (Integer) q[1]);
+            return byPending != 0 ? byPending : Integer.compare((Integer) p[2], (Integer) q[2]);
+        });
+        IllegalArgumentException failure = null;
+        for (Object[] candidate : candidates) {
+            Endpoint start = (Endpoint) candidate[3];
+            Endpoint end = (Endpoint) candidate[4];
+            @SuppressWarnings("unchecked")
+            List<Point> via = (List<Point>) candidate[5];
+            try {
+                List<Point> result = new ArrayList<>();
+                result.add(start.anchor);
+                result.addAll(through(start.gateway, end.gateway, via, excluded));
+                result.add(end.anchor);
+                return result;
+            } catch (IllegalArgumentException blocked) {
+                failure = blocked;
+            }
+        }
+        throw failure;
+    }
+
     /** Number of direct lines of edges not yet routed that the segment would cross, plus the count so far. */
     private int pendingCrossings(final Point a, final Point b, final int count) {
         if (count == Integer.MAX_VALUE) { return count; }
@@ -499,6 +789,7 @@ public final class FixedNodeRouter {
 
     /** A visibility graph is built only for edges whose direct segment is obstructed. */
     private List<Point> shortest(final Point start, final Point end, final Set<ElkNode> excluded) {
+        if (orthogonal) { return orthogonalShortest(start, end, excluded); }
         Set<Rect> active = new LinkedHashSet<>();
         searchBlockers = active;
         boolean direct = visible(start, end, excluded);
@@ -737,6 +1028,7 @@ public final class FixedNodeRouter {
         }
         Rect guarded = rect.inflate(margins.edgeLabel);
         for (Segment segment : routedSegments) {
+            if (segment.owner == route.edge) { continue; }
             if (guarded.crosses(segment.a, segment.b)) { return null; }
         }
         for (Map.Entry<ElkEdge, List<Segment>> entry : fixedSegments.entrySet()) {
@@ -769,7 +1061,7 @@ public final class FixedNodeRouter {
         double dx = length < EPSILON ? 1 : (e.x - s.x) / length;
         double dy = length < EPSILON ? 0 : (e.y - s.y) / length;
         List<double[]> orientations = new ArrayList<>();
-        orientations.add(new double[] {dx, dy});
+        if (!orthogonal || Math.abs(dy) < 1e-6 || Math.abs(dx) < 1e-6) { orientations.add(new double[] {dx, dy}); }
         if (Math.abs(dy) > 1e-6) { orientations.add(new double[] {1, 0}); }
         if (Math.abs(dx) > 1e-6) { orientations.add(new double[] {0, 1}); }
         Point middle = new Point((s.x + e.x) / 2, (s.y + e.y) / 2);
@@ -843,7 +1135,10 @@ public final class FixedNodeRouter {
             int host = skeleton.indexOf(c2);
             for (int i = 2; i < skeleton.size() - 1 && direct; i++) {
                 if (i == host || distance(skeleton.get(i - 1), skeleton.get(i)) < EPSILON) { continue; }
-                direct = visible(skeleton.get(i - 1), skeleton.get(i), route.excluded);
+                Point p = skeleton.get(i - 1);
+                Point q = skeleton.get(i);
+                direct = (!orthogonal || Math.abs(p.x - q.x) < EPSILON || Math.abs(p.y - q.y) < EPSILON)
+                        && visible(p, q, route.excluded);
             }
             if (direct) {
                 candidate.points = skeleton;
@@ -906,7 +1201,7 @@ public final class FixedNodeRouter {
         if (points.size() < 5) { return; }
         if (!(route.source instanceof ElkPort) && route.outgoing.isEmpty()) {
             Endpoint start = endpoint(route.source, points.get(2), route.sv);
-            if (visible(start.gateway, points.get(2), route.excluded)) {
+            if (axisAligned(start.gateway, points.get(2)) && visible(start.gateway, points.get(2), route.excluded)) {
                 points.set(0, start.anchor);
                 points.set(1, start.gateway);
                 candidate.start = start;
@@ -915,7 +1210,7 @@ public final class FixedNodeRouter {
         if (!(route.target instanceof ElkPort) && route.incoming.isEmpty()) {
             int last = points.size() - 1;
             Endpoint end = endpoint(route.target, points.get(last - 2), route.tv);
-            if (visible(points.get(last - 2), end.gateway, route.excluded)) {
+            if (axisAligned(points.get(last - 2), end.gateway) && visible(points.get(last - 2), end.gateway, route.excluded)) {
                 points.set(last, end.anchor);
                 points.set(last - 1, end.gateway);
                 candidate.end = end;
@@ -977,12 +1272,14 @@ public final class FixedNodeRouter {
                 double middle = (start.x + end.x) / 2;
                 first = new Point(middle - half, coordinate);
                 second = new Point(middle + half, coordinate);
-                if (start.x > end.x) { Point swap = first; first = second; second = swap; }
             } else {
                 double middle = (start.y + end.y) / 2;
                 first = new Point(coordinate, middle - half);
                 second = new Point(coordinate, middle + half);
-                if (start.y > end.y) { Point swap = first; first = second; second = swap; }
+            }
+            // Traverse the corridor in the direction that does not double back on itself.
+            if (distance(startGate, first) + distance(second, endGate) > distance(startGate, second) + distance(first, endGate)) {
+                Point swap = first; first = second; second = swap;
             }
             List<Point> via = new ArrayList<>();
             via.add(first);
@@ -1019,19 +1316,35 @@ public final class FixedNodeRouter {
     }
 
     /** Positions every label of the group inside the composite rectangle and reserves it. */
-    private void apply(final Candidate candidate, final List<ElkLabel> edgeLabels) {
+    private List<Rect> apply(final Candidate candidate, final List<ElkLabel> edgeLabels) {
         boolean sideBySide = Math.abs(candidate.ux) >= Math.abs(candidate.uy);
         double x = candidate.rect.left;
         double y = candidate.rect.top;
+        List<Rect> reserved = new ArrayList<>();
         for (ElkLabel label : edgeLabels) {
             double width = Math.max(0, label.getWidth());
             double height = Math.max(0, label.getHeight());
             double lx = sideBySide ? x : candidate.rect.left + (candidate.size[0] - width) / 2;
             double ly = sideBySide ? candidate.rect.top + (candidate.size[1] - height) / 2 : y;
             label.setLocation(lx, ly);
-            reserveLabel(new Rect(lx, ly, lx + width, ly + height, null, 0));
+            reserved.add(reserveLabel(new Rect(lx, ly, lx + width, ly + height, null, 0)));
             if (sideBySide) { x += width + margins.labelGap; } else { y += height + margins.labelGap; }
         }
+        return reserved;
+    }
+
+    /** Withdraws tentative label obstacles before their labels are placed again. */
+    private void unreserve(final List<Rect> reserved) {
+        for (Rect rect : reserved) {
+            obstacles.remove(rect);
+            for (int x = cell(rect.left); x <= cell(rect.right); x++) {
+                for (int y = cell(rect.top); y <= cell(rect.bottom); y++) {
+                    List<Rect> bucket = cells.get(x + ":" + y);
+                    if (bucket != null) { bucket.remove(rect); }
+                }
+            }
+        }
+        visibilityCache.clear();
     }
 
     private Rect outerExtent() {
@@ -1054,6 +1367,7 @@ public final class FixedNodeRouter {
     private int crossingCount(final Point a, final Point b) {
         int count = 0;
         for (Segment segment : routedSegments) {
+            if (segment.owner != null && segment.owner == current) { continue; }
             if (side(a, b, segment.a) * side(a, b, segment.b) < -EPSILON
                     && side(segment.a, segment.b, a) * side(segment.a, segment.b, b) < -EPSILON) { count++; }
         }
@@ -1071,13 +1385,14 @@ public final class FixedNodeRouter {
         return (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
     }
 
-    private void reserveLabel(final Rect label) {
+    private Rect reserveLabel(final Rect label) {
         // Later edges keep the edge-label spacing from placed labels.
         Rect obstacle = new Rect(label.left - margins.edgeLabel, label.top - margins.edgeLabel,
                 label.right + margins.edgeLabel, label.bottom + margins.edgeLabel, null, margins.edgeLabel);
         obstacles.add(obstacle);
         index(obstacle);
         visibilityCache.clear();
+        return obstacle;
     }
 
     private void index(final Rect rect) {
@@ -1100,6 +1415,11 @@ public final class FixedNodeRouter {
         }
     }
 
+    /** In orthogonal mode a leg must be axis-aligned; polyline mode accepts any straight leg. */
+    private boolean axisAligned(final Point a, final Point b) {
+        return !orthogonal || Math.abs(a.x - b.x) < EPSILON || Math.abs(a.y - b.y) < EPSILON;
+    }
+
     private static double polylineLength(final List<Point> points) {
         double length = 0;
         for (int i = 1; i < points.size(); i++) { length += distance(points.get(i - 1), points.get(i)); }
@@ -1115,6 +1435,347 @@ public final class FixedNodeRouter {
             if (Math.abs(distance(a, b) + distance(b, c) - distance(a, c)) >= EPSILON) { bends++; }
         }
         return bends;
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Orthogonal connectors
+
+    /** Assigns every free endpoint of every edge a side and an offset along it, evenly spread. */
+    private void computeSpreads(final List<ElkEdge> edges) {
+        Map<ElkConnectableShape, List<List<Object[]>>> sides = new HashMap<>();
+        for (ElkEdge edge : edges) {
+            if (prerouted.containsKey(edge)) { continue; }
+            ElkConnectableShape source = edge.getSources().get(0);
+            ElkConnectableShape target = edge.getTargets().get(0);
+            if (GeometryGraph.endpointNode(source) == GeometryGraph.endpointNode(target)) { continue; }
+            for (int role = 0; role < 2; role++) {
+                ElkConnectableShape shape = role == 0 ? source : target;
+                ElkConnectableShape other = role == 0 ? target : source;
+                if (shape instanceof ElkPort) { continue; }
+                Point c = center(shape);
+                Point o = center(other);
+                double dx = o.x - c.x;
+                double dy = o.y - c.y;
+                double[] chosen = chosenSides.get(edge.getIdentifier() + ":" + (role == 0 ? "s" : "t"));
+                if (chosen != null) { dx = chosen[0]; dy = chosen[1]; }
+                int side = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 1 : 3) : (dy >= 0 ? 2 : 0);
+                List<List<Object[]>> perSide = sides.get(shape);
+                if (perSide == null) {
+                    perSide = new ArrayList<>();
+                    for (int i = 0; i < 4; i++) { perSide.add(new ArrayList<>()); }
+                    sides.put(shape, perSide);
+                }
+                double along = side == 1 || side == 3 ? o.y : o.x;
+                perSide.get(side).add(new Object[] {edge, role == 0 ? "s" : "t", along});
+            }
+        }
+        double gap = Math.max(4, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE));
+        for (Map.Entry<ElkConnectableShape, List<List<Object[]>>> entry : sides.entrySet()) {
+            ElkConnectableShape shape = entry.getKey();
+            for (int side = 0; side < 4; side++) {
+                List<Object[]> list = entry.getValue().get(side);
+                if (list.isEmpty()) { continue; }
+                Collections.sort(list, (p, q) -> {
+                    int byAlong = Double.compare((Double) p[2], (Double) q[2]);
+                    if (byAlong != 0) { return byAlong; }
+                    String pid = ((ElkEdge) p[0]).getIdentifier();
+                    String qid = ((ElkEdge) q[0]).getIdentifier();
+                    int byId = (pid == null ? "" : pid).compareTo(qid == null ? "" : qid);
+                    return byId != 0 ? byId : ((String) p[1]).compareTo((String) q[1]);
+                });
+                double length = side == 1 || side == 3 ? shape.getHeight() : shape.getWidth();
+                int n = list.size();
+                double step = Math.min(2 * gap, length / (n + 1));
+                double sideDx = side == 1 ? 1 : side == 3 ? -1 : 0;
+                double sideDy = side == 2 ? 1 : side == 0 ? -1 : 0;
+                for (int i = 0; i < n; i++) {
+                    Object[] item = list.get(i);
+                    double offset = (i - (n - 1) / 2.0) * step;
+                    if (n == 1) { offset = aligned(shape, (ElkEdge) item[0], (String) item[1], side); }
+                    spreads.put(((ElkEdge) item[0]).getIdentifier() + ":" + item[1], new double[] {sideDx, sideDy, offset});
+                }
+            }
+        }
+    }
+
+    /**
+     * A lone connector on a side runs straight when the two nodes overlap along that side: its
+     * anchor moves to the middle of the overlap, kept inside the side, instead of the side center.
+     */
+    private double aligned(final ElkConnectableShape shape, final ElkEdge edge, final String role, final int side) {
+        ElkConnectableShape other = "s".equals(role) ? edge.getTargets().get(0) : edge.getSources().get(0);
+        if (other instanceof ElkPort) { return 0; }
+        Point c = center(shape);
+        Point o = center(other);
+        boolean vertical = side == 1 || side == 3;
+        double mine = vertical ? c.y : c.x;
+        double half = (vertical ? shape.getHeight() : shape.getWidth()) / 2;
+        double theirs = vertical ? o.y : o.x;
+        double theirHalf = (vertical ? other.getHeight() : other.getWidth()) / 2;
+        double low = Math.max(mine - half, theirs - theirHalf);
+        double high = Math.min(mine + half, theirs + theirHalf);
+        if (high - low < EPSILON) { return 0; }
+        double target = (low + high) / 2;
+        double margin = Math.min(half, Math.max(4, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE)));
+        return Math.max(-(half - margin), Math.min(half - margin, target - mine));
+    }
+
+    /** Moves a side-center endpoint along its side by the spread offset computed for this edge. */
+    private Endpoint spread(final Endpoint endpoint, final ElkEdge edge, final String role) {
+        if (!orthogonal) { return endpoint; }
+        double[] spreadOffset = spreads.get(edge.getIdentifier() + ":" + role);
+        if (spreadOffset == null || Math.abs(spreadOffset[2]) < EPSILON) { return endpoint; }
+        // The tangent of a horizontal side is x, of a vertical side y.
+        double tx = spreadOffset[1] != 0 ? 1 : 0;
+        double ty = spreadOffset[0] != 0 ? 1 : 0;
+        return new Endpoint(new Point(endpoint.anchor.x + tx * spreadOffset[2], endpoint.anchor.y + ty * spreadOffset[2]),
+                new Point(endpoint.gateway.x + tx * spreadOffset[2], endpoint.gateway.y + ty * spreadOffset[2]));
+    }
+
+    /**
+     * Removes a jog shorter than the edge spacing right after the first or before the last stub
+     * by sliding that anchor along its side, as long as the anchor stays on the side. Such jogs
+     * come from anchors that are a few pixels off the line the connector needs, and they cost two
+     * bends that would otherwise distort side probing and nudging.
+     */
+    private void dejog(final List<Point> points, final ElkConnectableShape source, final ElkConnectableShape target) {
+        double limit = Math.max(4, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            simplify(points);
+            boolean changed = false;
+            if (!(source instanceof ElkPort) && points.size() >= 4) { changed |= dejogEnd(points, source, limit, false); }
+            if (!(target instanceof ElkPort) && points.size() >= 4) { changed |= dejogEnd(points, target, limit, true); }
+            if (!changed) { break; }
+        }
+    }
+
+    private boolean dejogEnd(final List<Point> points, final ElkConnectableShape shape, final double limit,
+            final boolean atEnd) {
+        int n = points.size();
+        Point anchor = points.get(atEnd ? n - 1 : 0);
+        Point gateway = points.get(atEnd ? n - 2 : 1);
+        Point jog = points.get(atEnd ? n - 3 : 2);
+        Point beyond = points.get(atEnd ? n - 4 : 3);
+        boolean stubVertical = Math.abs(anchor.x - gateway.x) < EPSILON;
+        double dx = jog.x - gateway.x;
+        double dy = jog.y - gateway.y;
+        // The jog must be perpendicular to the stub and the next segment parallel to it.
+        if (stubVertical ? Math.abs(dy) > EPSILON || Math.abs(dx) >= limit : Math.abs(dx) > EPSILON || Math.abs(dy) >= limit) {
+            return false;
+        }
+        if (stubVertical ? Math.abs(beyond.x - jog.x) > EPSILON : Math.abs(beyond.y - jog.y) > EPSILON) { return false; }
+        Point c = center(shape);
+        double half = (stubVertical ? shape.getWidth() : shape.getHeight()) / 2;
+        double along = stubVertical ? anchor.x + dx - c.x : anchor.y + dy - c.y;
+        if (Math.abs(along) > half - 2) { return false; }
+        points.set(atEnd ? n - 1 : 0, new Point(anchor.x + dx, anchor.y + dy));
+        points.set(atEnd ? n - 2 : 1, new Point(gateway.x + dx, gateway.y + dy));
+        points.remove(atEnd ? n - 3 : 2);
+        return true;
+    }
+
+    /** Adaptive orthogonal search: the grid grows with the obstacles that blocked earlier probes. */
+    private List<Point> orthogonalShortest(final Point start, final Point end, final Set<ElkNode> excluded) {
+        Set<Rect> active = new LinkedHashSet<>();
+        for (int pass = 0; pass <= obstacles.size(); pass++) {
+            Set<Rect> discovered = new LinkedHashSet<>();
+            searchBlockers = discovered;
+            List<Point> result = orthogonalSearch(start, end, excluded, active);
+            searchBlockers = null;
+            if (!active.addAll(discovered)) {
+                if (result != null) { return result; }
+                break;
+            }
+        }
+        throw new IllegalArgumentException("No orthogonal corridor from (" + start.x + ", " + start.y
+                + ") to (" + end.x + ", " + end.y + "); increase node spacing");
+    }
+
+    private static void addCoordinate(final List<Double> coordinates, final double value) {
+        for (Double existing : coordinates) { if (Math.abs(existing - value) < EPSILON) { return; } }
+        coordinates.add(value);
+    }
+
+    private static int indexOf(final List<Double> coordinates, final double value) {
+        for (int i = 0; i < coordinates.size(); i++) { if (Math.abs(coordinates.get(i) - value) < EPSILON) { return i; } }
+        return -1;
+    }
+
+    /** Dijkstra over the grid spanned by the endpoints and the active obstacle borders. */
+    private List<Point> orthogonalSearch(final Point start, final Point end, final Set<ElkNode> excluded,
+            final Set<Rect> active) {
+        List<Double> xs = new ArrayList<>();
+        List<Double> ys = new ArrayList<>();
+        addCoordinate(xs, start.x); addCoordinate(xs, end.x);
+        addCoordinate(ys, start.y); addCoordinate(ys, end.y);
+        for (Rect rect : active) {
+            if (excluded.contains(rect.node)) { continue; }
+            addCoordinate(xs, rect.left); addCoordinate(xs, rect.right);
+            addCoordinate(ys, rect.top); addCoordinate(ys, rect.bottom);
+        }
+        Collections.sort(xs);
+        Collections.sort(ys);
+        int width = xs.size();
+        int height = ys.size();
+        int count = width * height;
+        int startIndex = indexOf(xs, start.x) * height + indexOf(ys, start.y);
+        int endIndex = indexOf(xs, end.x) * height + indexOf(ys, end.y);
+        double bendPenalty = 2 * Math.max(clearance, 4);
+        double crossingPenalty = Math.max(clearance, 4) / 2;
+        // A state is a grid point plus the direction it was entered from: 0 +x, 1 -x, 2 +y, 3 -y.
+        double[] cost = new double[count * 4];
+        int[] bends = new int[count * 4];
+        int[] crossings = new int[count * 4];
+        int[] previous = new int[count * 4];
+        boolean[] closed = new boolean[count * 4];
+        java.util.Arrays.fill(cost, Double.POSITIVE_INFINITY);
+        java.util.Arrays.fill(previous, -1);
+        PriorityQueue<double[]> queue = new PriorityQueue<>((p, q) -> {
+            int byCost = Double.compare(p[0], q[0]);
+            if (byCost != 0) { return byCost; }
+            int byBends = Double.compare(p[1], q[1]);
+            if (byBends != 0) { return byBends; }
+            int byCrossings = Double.compare(p[2], q[2]);
+            return byCrossings != 0 ? byCrossings : Double.compare(p[3], q[3]);
+        });
+        for (int direction = 0; direction < 4; direction++) {
+            int state = startIndex * 4 + direction;
+            cost[state] = 0;
+            queue.add(new double[] {0, 0, 0, state});
+        }
+        int reached = -1;
+        while (!queue.isEmpty()) {
+            double[] item = queue.poll();
+            int state = (int) item[3];
+            if (closed[state] || item[0] > cost[state] + EPSILON) { continue; }
+            closed[state] = true;
+            int point = state / 4;
+            int direction = state % 4;
+            if (point == endIndex) { reached = state; break; }
+            int i = point / height;
+            int j = point % height;
+            for (int next = 0; next < 4; next++) {
+                int ni = i + (next == 0 ? 1 : next == 1 ? -1 : 0);
+                int nj = j + (next == 2 ? 1 : next == 3 ? -1 : 0);
+                if (ni < 0 || nj < 0 || ni >= width || nj >= height) { continue; }
+                int neighbor = ni * height + nj;
+                int nextState = neighbor * 4 + next;
+                if (closed[nextState]) { continue; }
+                Point a = new Point(xs.get(i), ys.get(j));
+                Point b = new Point(xs.get(ni), ys.get(nj));
+                if (!visible(a, b, excluded)) { continue; }
+                int crossed = crossingCount(a, b);
+                double candidate = cost[state] + distance(a, b) + (next != direction ? bendPenalty : 0)
+                        + crossingPenalty * crossed;
+                int candidateBends = bends[state] + (next != direction ? 1 : 0);
+                int candidateCrossings = crossings[state] + crossed;
+                if (candidate < cost[nextState] - EPSILON || Math.abs(candidate - cost[nextState]) <= EPSILON
+                        && (candidateBends < bends[nextState] || candidateBends == bends[nextState]
+                        && candidateCrossings < crossings[nextState])) {
+                    cost[nextState] = candidate;
+                    bends[nextState] = candidateBends;
+                    crossings[nextState] = candidateCrossings;
+                    previous[nextState] = state;
+                    queue.add(new double[] {candidate, candidateBends, candidateCrossings, nextState});
+                }
+            }
+        }
+        if (reached < 0) { return null; }
+        List<Point> result = new ArrayList<>();
+        for (int state = reached; state >= 0; state = previous[state]) {
+            int point = state / 4;
+            result.add(new Point(xs.get(point / height), ys.get(point % height)));
+            if (point == startIndex) { break; }
+        }
+        Collections.reverse(result);
+        simplify(result);
+        return result;
+    }
+
+    /**
+     * Separates collinear interior segments of different routes that overlap, so that parallel
+     * connectors run side by side one edge spacing apart. Pre-routed connectors are never moved,
+     * and a nudge that would enter an obstacle or fold a neighbor segment is dropped.
+     */
+    private void nudge(final List<Route> routes) {
+        double gap = Math.max(4, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE));
+        for (int axis = 0; axis < 2; axis++) {
+            boolean horizontalSegments = axis == 0;
+            List<Object[]> entries = new ArrayList<>();
+            for (Route route : routes) {
+                if (route.fixed) { continue; }
+                List<Point> points = route.points;
+                for (int s = 2; s <= points.size() - 2; s++) {
+                    Point a = points.get(s - 1);
+                    Point b = points.get(s);
+                    boolean horizontal = Math.abs(a.y - b.y) < EPSILON;
+                    if (horizontal != horizontalSegments || distance(a, b) < EPSILON) { continue; }
+                    double coordinate = horizontal ? a.y : a.x;
+                    double low = horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y);
+                    double high = horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y);
+                    Point before = points.get(s - 2);
+                    Point after = points.get(s + 1);
+                    double key = horizontal ? (before.y + after.y) / 2 - coordinate : (before.x + after.x) / 2 - coordinate;
+                    entries.add(new Object[] {route, s, coordinate, low, high, key});
+                }
+            }
+            Collections.sort(entries, (p, q) -> {
+                int byCoordinate = Double.compare((Double) p[2], (Double) q[2]);
+                if (byCoordinate != 0) { return byCoordinate; }
+                int byLow = Double.compare((Double) p[3], (Double) q[3]);
+                return byLow != 0 ? byLow : Integer.compare(((Route) p[0]).index, ((Route) q[0]).index);
+            });
+            int i = 0;
+            while (i < entries.size()) {
+                List<Object[]> cluster = new ArrayList<>();
+                cluster.add(entries.get(i));
+                double coordinate = (Double) entries.get(i)[2];
+                double reach = (Double) entries.get(i)[4];
+                int j = i + 1;
+                while (j < entries.size() && Math.abs((Double) entries.get(j)[2] - coordinate) < EPSILON
+                        && (Double) entries.get(j)[3] < reach - EPSILON) {
+                    cluster.add(entries.get(j));
+                    reach = Math.max(reach, (Double) entries.get(j)[4]);
+                    j++;
+                }
+                i = j;
+                if (cluster.size() < 2) { continue; }
+                Collections.sort(cluster, (p, q) -> {
+                    int byKey = Double.compare((Double) p[5], (Double) q[5]);
+                    return byKey != 0 ? byKey : Integer.compare(((Route) p[0]).index, ((Route) q[0]).index);
+                });
+                for (int k = 0; k < cluster.size(); k++) {
+                    double offset = (k - (cluster.size() - 1) / 2.0) * gap;
+                    shiftSegment((Route) cluster.get(k)[0], (Integer) cluster.get(k)[1], horizontalSegments, offset);
+                }
+            }
+        }
+    }
+
+    /** Moves segment s of a route perpendicular by offset if the result stays valid. */
+    private void shiftSegment(final Route route, final int s, final boolean horizontal, final double offset) {
+        if (Math.abs(offset) < EPSILON) { return; }
+        List<Point> points = route.points;
+        Point a = points.get(s - 1);
+        Point b = points.get(s);
+        Point before = points.get(s - 2);
+        Point after = points.get(s + 1);
+        Point na = horizontal ? new Point(a.x, a.y + offset) : new Point(a.x + offset, a.y);
+        Point nb = horizontal ? new Point(b.x, b.y + offset) : new Point(b.x + offset, b.y);
+        // Neighbors keep their direction: the moved segment must not pass its neighbors' far ends.
+        double beforeOld = horizontal ? a.y - before.y : a.x - before.x;
+        double beforeNew = horizontal ? na.y - before.y : na.x - before.x;
+        double afterOld = horizontal ? after.y - b.y : after.x - b.x;
+        double afterNew = horizontal ? after.y - nb.y : after.x - nb.x;
+        if (beforeOld * beforeNew <= EPSILON || afterOld * afterNew <= EPSILON) { return; }
+        // Neighbor segments may be the stubs inside the endpoints' own clearance bands.
+        Set<ElkNode> own = new HashSet<>(route.excluded);
+        own.add(GeometryGraph.endpointNode(route.source));
+        own.add(GeometryGraph.endpointNode(route.target));
+        if (!visible(na, nb, route.excluded) || !visible(before, na, own) || !visible(nb, after, own)) { return; }
+        points.set(s - 1, na);
+        points.set(s, nb);
+        route.moved = true;
     }
 
     private int cell(final double coordinate) { return (int) Math.floor(coordinate / cellSize); }
@@ -1139,7 +1800,9 @@ public final class FixedNodeRouter {
     private static final class Segment {
         final Point a;
         final Point b;
-        Segment(final Point a, final Point b) { this.a = a; this.b = b; }
+        final ElkEdge owner;
+        Segment(final Point a, final Point b) { this(a, b, null); }
+        Segment(final Point a, final Point b, final ElkEdge owner) { this.a = a; this.b = b; this.owner = owner; }
     }
     private static final class Carrier {
         final Point a;
@@ -1160,7 +1823,10 @@ public final class FixedNodeRouter {
         Endpoint end;
         List<Point> points;
         int lane;
+        int index;
         boolean fixed;
+        boolean moved;
+        List<Rect> reserved;
         Route(final ElkEdge edge, final ElkConnectableShape source, final ElkConnectableShape target,
                 final Vertex sv, final Vertex tv) {
             this.edge = edge; this.source = source; this.target = target; this.sv = sv; this.tv = tv;

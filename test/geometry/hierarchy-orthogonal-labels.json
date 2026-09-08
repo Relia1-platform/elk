@@ -1,0 +1,152 @@
+{
+  "id": "hierarchy-orthogonal-labels",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    "elk.geometric.routing": "ORTHOGONAL",
+    "elk.geometric.mode": "TREE",
+    "elk.direction": "RIGHT",
+    "elk.hierarchyHandling": "INCLUDE_CHILDREN"
+  },
+  "children": [
+    {
+      "id": "group1",
+      "layoutOptions": {
+        "elk.geometric.mode": "TREE",
+        "elk.geometric.routing": "ORTHOGONAL",
+        "elk.direction": "DOWN",
+        "elk.spacing.nodeNode": "24"
+      },
+      "children": [
+        {
+          "id": "x1",
+          "width": 40,
+          "height": 30
+        },
+        {
+          "id": "x2",
+          "width": 40,
+          "height": 30
+        }
+      ],
+      "edges": [
+        {
+          "id": "x12",
+          "sources": [
+            "x1"
+          ],
+          "targets": [
+            "x2"
+          ],
+          "labels": [
+            {
+              "id": "x12-label",
+              "text": "x12-label",
+              "width": 56,
+              "height": 16
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "group2",
+      "layoutOptions": {
+        "elk.geometric.mode": "TREE",
+        "elk.geometric.routing": "ORTHOGONAL",
+        "elk.direction": "DOWN",
+        "elk.spacing.nodeNode": "24"
+      },
+      "children": [
+        {
+          "id": "y1",
+          "width": 40,
+          "height": 30
+        },
+        {
+          "id": "y2",
+          "width": 60,
+          "height": 36
+        }
+      ],
+      "edges": [
+        {
+          "id": "y12",
+          "sources": [
+            "y1"
+          ],
+          "targets": [
+            "y2"
+          ],
+          "labels": [
+            {
+              "id": "y12-label",
+              "text": "y12-label",
+              "width": 44,
+              "height": 16
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "z",
+      "width": 50,
+      "height": 34
+    }
+  ],
+  "edges": [
+    {
+      "id": "x2y1",
+      "sources": [
+        "x2"
+      ],
+      "targets": [
+        "y1"
+      ],
+      "labels": [
+        {
+          "id": "x2y1-label",
+          "text": "across",
+          "width": 100,
+          "height": 18
+        }
+      ]
+    },
+    {
+      "id": "x1y2",
+      "sources": [
+        "x1"
+      ],
+      "targets": [
+        "y2"
+      ],
+      "labels": [
+        {
+          "id": "x1y2-label",
+          "text": "x1y2-label",
+          "width": 64,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "zx1",
+      "sources": [
+        "z"
+      ],
+      "targets": [
+        "x1"
+      ],
+      "labels": [
+        {
+          "id": "zx1-label",
+          "text": "zx1-label",
+          "width": 52,
+          "height": 16
+        }
+      ]
+    }
+  ]
+}

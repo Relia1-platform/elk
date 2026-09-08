@@ -207,6 +207,211 @@ public class GeometricConnectorTest {
         assertEquals(TreeRouting.DIRECT, graph.getProperty(GeometricOptions.TREE_ROUTING));
     }
 
+    @Test
+    public void orthogonalRoutesAreAxisAlignedAndSpreadAlongSharedSides() {
+        ElkNode graph = ElkGraphUtil.createGraph();
+        ElkNode hub = box(graph, "hub", 200, 200, 60, 40);
+        String[] names = {"n0", "n1", "n2", "n3", "n4", "n5"};
+        double[][] at = {{200, 40}, {380, 120}, {380, 300}, {200, 380}, {20, 300}, {20, 120}};
+        for (int i = 0; i < names.length; i++) {
+            ElkNode leaf = box(graph, names[i], at[i][0], at[i][1], 40, 30);
+            ElkEdge edge = ElkGraphUtil.createSimpleEdge(hub, leaf);
+            edge.setIdentifier("e" + i);
+            ElkLabel label = ElkGraphUtil.createLabel(edge);
+            label.setDimensions(30 + 8 * i, 14);
+        }
+        org.eclipse.elk.alg.common.FixedNodeRouter router = new org.eclipse.elk.alg.common.FixedNodeRouter(graph);
+        router.setOrthogonal(true);
+        router.route();
+        Map<Double, Integer> eastAnchors = new HashMap<>();
+        for (ElkEdge edge : graph.getContainedEdges()) {
+            assertOrthogonal(edge);
+            List<KVector> points = points(edge);
+            KVector first = points.get(0);
+            assertTrue(edge.getIdentifier() + " leaves the hub border", Math.abs(first.x - hub.getX()) < 1e-9
+                    || Math.abs(first.x - hub.getX() - hub.getWidth()) < 1e-9
+                    || Math.abs(first.y - hub.getY()) < 1e-9 || Math.abs(first.y - hub.getY() - hub.getHeight()) < 1e-9);
+            if (Math.abs(first.x - hub.getX() - hub.getWidth()) < 1e-9) { eastAnchors.merge(first.y, 1, Integer::sum); }
+            for (ElkNode node : graph.getChildren()) {
+                if (edge.getSources().contains(node) || edge.getTargets().contains(node)) { continue; }
+                for (int i = 1; i < points.size(); i++) {
+                    assertFalse(edge.getIdentifier() + " crosses " + node.getIdentifier(),
+                            GeometricRoutingTest.crossesNode(points.get(i - 1), points.get(i), node));
+                }
+            }
+        }
+        assertEquals("two spokes leave the east side at distinct anchors", 2, eastAnchors.size());
+        GeometricLabelTest.verifyLabels("orthogonal-hub", graph);
+        assertEquals(0, crossings(graph));
+    }
+
+    @Test
+    public void orthogonalRouteAroundAnObstacleUsesTwoBends() {
+        ElkNode graph = ElkGraphUtil.createGraph();
+        ElkNode a = box(graph, "a", 0, 40, 40, 30);
+        ElkNode b = box(graph, "b", 300, 40, 40, 30);
+        box(graph, "m", 150, 20, 40, 70);
+        ElkEdge edge = ElkGraphUtil.createSimpleEdge(a, b);
+        edge.setIdentifier("ab");
+        org.eclipse.elk.alg.common.FixedNodeRouter router = new org.eclipse.elk.alg.common.FixedNodeRouter(graph);
+        router.setOrthogonal(true);
+        router.route();
+        assertOrthogonal(edge);
+        assertEquals("up, across, down", 2, bends(edge));
+        List<KVector> points = points(edge);
+        KVector first = points.get(0);
+        KVector last = points.get(points.size() - 1);
+        assertTrue("leaves a through its top or east side",
+                Math.abs(first.y - a.getY()) < 1e-9 || Math.abs(first.x - a.getX() - a.getWidth()) < 1e-9);
+        assertTrue("enters b through its top or west side",
+                Math.abs(last.y - b.getY()) < 1e-9 || Math.abs(last.x - b.getX()) < 1e-9);
+    }
+
+    @Test
+    public void orthogonalOverlappingSegmentsAreNudgedApart() {
+        ElkNode graph = ElkGraphUtil.createGraph();
+        ElkNode a = box(graph, "a", 0, 100, 40, 30);
+        ElkNode b = box(graph, "b", 400, 100, 40, 30);
+        ElkNode c = box(graph, "c", 0, 160, 40, 30);
+        ElkNode d = box(graph, "d", 400, 160, 40, 30);
+        box(graph, "wall", 200, 80, 40, 400);
+        ElkEdge ab = ElkGraphUtil.createSimpleEdge(a, b);
+        ab.setIdentifier("ab");
+        ElkEdge cd = ElkGraphUtil.createSimpleEdge(c, d);
+        cd.setIdentifier("cd");
+        org.eclipse.elk.alg.common.FixedNodeRouter router = new org.eclipse.elk.alg.common.FixedNodeRouter(graph);
+        router.setOrthogonal(true);
+        router.route();
+        assertOrthogonal(ab);
+        assertOrthogonal(cd);
+        double topAb = Double.POSITIVE_INFINITY;
+        double topCd = Double.POSITIVE_INFINITY;
+        for (KVector point : points(ab)) { topAb = Math.min(topAb, point.y); }
+        for (KVector point : points(cd)) { topCd = Math.min(topCd, point.y); }
+        assertTrue("both cross over the wall", topAb < 80 && topCd < 80);
+        assertTrue("the shared channel is split into lanes: " + topAb + " vs " + topCd, Math.abs(topAb - topCd) >= 4 - 1e-9);
+    }
+
+    @Test
+    public void orthogonalFixturesAreAxisAlignedValidAndSeparated() throws Exception {
+        Path root = Paths.get(System.getProperty("ELK_REPO"), "test", "geometry");
+        List<Path> fixtures = new ArrayList<>();
+        try (java.util.stream.Stream<Path> paths = Files.list(root)) {
+            paths.filter(p -> p.getFileName().toString().contains("orthogonal")).sorted().forEach(fixtures::add);
+        }
+        assertTrue("orthogonal fixtures present", fixtures.size() >= 6);
+        for (Path path : fixtures) {
+            ElkNode graph = ElkGraphJson.forGraph(Files.readString(path, StandardCharsets.UTF_8)).toElk();
+            String name = graph.getIdentifier();
+            new RecursiveGraphLayoutEngine().layout(graph, new BasicProgressMonitor());
+            Map<String, List<KVector>> routes = new HashMap<>();
+            Map<String, ElkEdge> edges = new HashMap<>();
+            absoluteRoutes(graph, 0, 0, routes, edges);
+            List<Object[]> nodes = new ArrayList<>();
+            absoluteNodes(graph, 0, 0, nodes);
+            for (Map.Entry<String, List<KVector>> entry : routes.entrySet()) {
+                List<KVector> points = entry.getValue();
+                ElkEdge edge = edges.get(entry.getKey());
+                for (int i = 1; i < points.size(); i++) {
+                    KVector a = points.get(i - 1);
+                    KVector b = points.get(i);
+                    assertTrue(name + ": " + entry.getKey() + " segment " + i + " is not axis-aligned",
+                            Math.abs(a.x - b.x) < 1e-9 || Math.abs(a.y - b.y) < 1e-9);
+                    for (Object[] node : nodes) {
+                        if (endpointOrAncestor((String) node[0], edge)) { continue; }
+                        assertFalse(name + ": " + entry.getKey() + " crosses " + node[0],
+                                GeometricRoutingTest.crossesNode(a, b, (ElkNode) node[5]));
+                    }
+                }
+            }
+            // Interior segments of different connectors never share a channel after nudging.
+            List<Object[]> interior = new ArrayList<>();
+            for (Map.Entry<String, List<KVector>> entry : routes.entrySet()) {
+                List<KVector> points = entry.getValue();
+                for (int i = 2; i <= points.size() - 2; i++) {
+                    interior.add(new Object[] {entry.getKey(), points.get(i - 1), points.get(i)});
+                }
+            }
+            for (int i = 0; i < interior.size(); i++) {
+                for (int j = i + 1; j < interior.size(); j++) {
+                    if (interior.get(i)[0].equals(interior.get(j)[0])) { continue; }
+                    assertFalse(name + ": " + interior.get(i)[0] + " and " + interior.get(j)[0] + " overlap",
+                            overlapCollinear((KVector) interior.get(i)[1], (KVector) interior.get(i)[2],
+                                    (KVector) interior.get(j)[1], (KVector) interior.get(j)[2]));
+                }
+            }
+            GeometricLabelTest.verifyLabels(name, graph);
+            ElkNode again = ElkGraphJson.forGraph(Files.readString(path, StandardCharsets.UTF_8)).toElk();
+            new RecursiveGraphLayoutEngine().layout(again, new BasicProgressMonitor());
+            assertEquals(name + ": determinism", GeometricLabelTest.geometry(graph), GeometricLabelTest.geometry(again));
+        }
+    }
+
+    private static boolean overlapCollinear(final KVector a, final KVector b, final KVector c, final KVector d) {
+        boolean horizontal = Math.abs(a.y - b.y) < 1e-9;
+        boolean otherHorizontal = Math.abs(c.y - d.y) < 1e-9;
+        if (horizontal != otherHorizontal) { return false; }
+        if (horizontal) {
+            if (Math.abs(a.y - c.y) > 1e-6) { return false; }
+            return Math.min(Math.max(a.x, b.x), Math.max(c.x, d.x)) - Math.max(Math.min(a.x, b.x), Math.min(c.x, d.x)) > 1e-6;
+        }
+        if (Math.abs(a.x - c.x) > 1e-6) { return false; }
+        return Math.min(Math.max(a.y, b.y), Math.max(c.y, d.y)) - Math.max(Math.min(a.y, b.y), Math.min(c.y, d.y)) > 1e-6;
+    }
+
+    private static boolean endpointOrAncestor(final String nodeId, final ElkEdge edge) {
+        for (org.eclipse.elk.graph.ElkConnectableShape shape : edge.getSources()) {
+            if (touches(shape, nodeId)) { return true; }
+        }
+        for (org.eclipse.elk.graph.ElkConnectableShape shape : edge.getTargets()) {
+            if (touches(shape, nodeId)) { return true; }
+        }
+        return false;
+    }
+
+    private static boolean touches(final org.eclipse.elk.graph.ElkConnectableShape shape, final String nodeId) {
+        ElkNode node = shape instanceof org.eclipse.elk.graph.ElkPort ? ((org.eclipse.elk.graph.ElkPort) shape).getParent()
+                : (ElkNode) shape;
+        for (ElkNode n = node; n != null; n = n.getParent()) {
+            if (nodeId != null && nodeId.equals(n.getIdentifier())) { return true; }
+        }
+        return false;
+    }
+
+    private static void absoluteNodes(final ElkNode graph, final double ox, final double oy, final List<Object[]> out) {
+        for (ElkNode child : graph.getChildren()) {
+            ElkNode shifted = ElkGraphUtil.createNode(null);
+            shifted.setIdentifier(child.getIdentifier());
+            shifted.setDimensions(child.getWidth(), child.getHeight());
+            shifted.setLocation(ox + child.getX(), oy + child.getY());
+            out.add(new Object[] {child.getIdentifier(), ox + child.getX(), oy + child.getY(), child.getWidth(),
+                    child.getHeight(), shifted});
+            absoluteNodes(child, ox + child.getX(), oy + child.getY(), out);
+        }
+    }
+
+    private static void absoluteRoutes(final ElkNode graph, final double ox, final double oy,
+            final Map<String, List<KVector>> routes, final Map<String, ElkEdge> edges) {
+        for (ElkEdge edge : graph.getContainedEdges()) {
+            List<KVector> points = new ArrayList<>();
+            for (KVector point : points(edge)) { points.add(new KVector(point.x + ox, point.y + oy)); }
+            routes.put(edge.getIdentifier(), points);
+            edges.put(edge.getIdentifier(), edge);
+        }
+        for (ElkNode child : graph.getChildren()) {
+            absoluteRoutes(child, ox + child.getX(), oy + child.getY(), routes, edges);
+        }
+    }
+
+    private static ElkNode box(final ElkNode graph, final String id, final double x, final double y,
+            final double width, final double height) {
+        ElkNode node = ElkGraphUtil.createNode(graph);
+        node.setIdentifier(id);
+        node.setDimensions(width, height);
+        node.setLocation(x, y);
+        return node;
+    }
+
     private static ElkEdge edgeOf(final ElkNode graph, final String id) {
         for (ElkEdge edge : graph.getContainedEdges()) { if (id.equals(edge.getIdentifier())) { return edge; } }
         throw new AssertionError("missing edge " + id);
