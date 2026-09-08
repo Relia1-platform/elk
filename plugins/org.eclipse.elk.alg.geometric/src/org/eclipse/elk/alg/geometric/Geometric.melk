@@ -4,6 +4,7 @@ package org.eclipse.elk.alg.geometric
 import org.eclipse.elk.alg.geometric.GeometricLayoutProvider
 import org.eclipse.elk.alg.geometric.options.GeometricMode
 import org.eclipse.elk.alg.geometric.options.GeometricOrder
+import org.eclipse.elk.alg.geometric.options.GeometricPacking
 import org.eclipse.elk.alg.geometric.options.GeometricRouting
 import org.eclipse.elk.alg.geometric.options.TreeRouting
 import org.eclipse.elk.core.math.ElkPadding
@@ -56,6 +57,7 @@ algorithm geometric(GeometricLayoutProvider) {
     supports routing
     supports refine
     supports refineGrid
+    supports packing
 }
 
 option mode: GeometricMode {
@@ -74,6 +76,12 @@ option routing: GeometricRouting {
     label "Geometric Routing"
     description "POLYLINE draws straight connectors; ORTHOGONAL draws axis-aligned connectors that leave and enter nodes through their facing sides, spread along shared sides and nudged apart in shared channels."
     default = GeometricRouting.POLYLINE
+    targets parents
+}
+option packing: GeometricPacking {
+    label "Component Packing"
+    description "SHELF fills rows with the components in model order; COMPACT takes them by decreasing height, first fit into the rows opened so far, so that tops align, rows are full, and the arrangement does not depend on the input order."
+    default = GeometricPacking.SHELF
     targets parents
 }
 option refine: boolean {

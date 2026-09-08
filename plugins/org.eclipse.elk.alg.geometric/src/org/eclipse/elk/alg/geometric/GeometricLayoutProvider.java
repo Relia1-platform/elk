@@ -18,6 +18,7 @@ import org.eclipse.elk.alg.common.TreeBusRouter;
 import org.eclipse.elk.alg.geometric.options.GeometricMode;
 import org.eclipse.elk.alg.geometric.options.GeometricOptions;
 import org.eclipse.elk.alg.geometric.options.GeometricOrder;
+import org.eclipse.elk.alg.geometric.options.GeometricPacking;
 import org.eclipse.elk.alg.geometric.options.GeometricRouting;
 import org.eclipse.elk.alg.geometric.options.TreeRouting;
 import org.eclipse.elk.alg.layered.LayeredLayoutProvider;
@@ -167,7 +168,8 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
                 }
             }
             GeometryPacking.pack(components, scope.getProperty(CoreOptions.SPACING_COMPONENT_COMPONENT),
-                    scope.getProperty(CoreOptions.ASPECT_RATIO));
+                    scope.getProperty(CoreOptions.ASPECT_RATIO),
+                    scope.getProperty(GeometricOptions.PACKING) == GeometricPacking.COMPACT);
             graph.applyPositions();
         }
         boolean refine = scope.getProperty(GeometricOptions.REFINE);
