@@ -49,6 +49,12 @@ public final class FixedNodeRouter {
     private static final int SLIDE_STEPS = 6;
     /** Preferred label segment marker for the last segment, which survives route simplification. */
     private static final int LAST_SEGMENT = Integer.MAX_VALUE;
+    /**
+     * Search work one edge may spend in lenient mode, in expanded states, before its direct
+     * connector is used: arbitrary positions can seal an edge in without enclosing its endpoints,
+     * and every side combination and the polyline retry would otherwise search the whole grid.
+     */
+    private static final int LENIENT_BUDGET = 50000;
     /** Cells of dense bucket arrays kept around the obstacles, and the most cells they may hold. */
     private static final int GRID_MARGIN = 4;
     private static final int GRID_LIMIT = 1 << 18;
@@ -78,6 +84,8 @@ public final class FixedNodeRouter {
     private ElkEdge current;
     private boolean lenient;
     private boolean orthogonal;
+    /** Search states expanded for the current edge, against the budget of lenient routing. */
+    private int searchWork;
     /** Spread anchors for free endpoints in orthogonal mode: edge id + role to {sideDx, sideDy, offset}. */
     private final Map<String, double[]> spreads = new HashMap<>();
     /** Sides chosen by probing in orthogonal mode: edge id + role to the outward side vector. */
@@ -260,6 +268,7 @@ public final class FixedNodeRouter {
             Route route = new Route(edge, source, target, sv, tv);
             route.lane = lane;
             current = edge;
+            searchWork = 0;
             List<Point> fixed = prerouted.get(edge);
             if (fixed != null) {
                 route.fixed = true;
@@ -273,16 +282,32 @@ public final class FixedNodeRouter {
                 try {
                     free(route, sc, tc, lane);
                 } catch (IllegalArgumentException failure) {
-                    if (!lenient) { throw failure; }
-                    // Route-only layouts of arbitrary positions keep going with a direct connector.
-                    route.start = endpoint(source, tc, sv);
-                    route.end = endpoint(target, sc, tv);
-                    route.outgoing = new ArrayList<>();
-                    route.incoming = new ArrayList<>();
-                    route.points = new ArrayList<>();
-                    route.points.add(route.start.anchor);
-                    if (orthogonal) { route.points.add(new Point(route.end.anchor.x, route.start.anchor.y)); }
-                    route.points.add(route.end.anchor);
+                    boolean routed = false;
+                    if (orthogonal) {
+                        // No orthogonal corridor, for example between nodes closer than twice the
+                        // edge clearance: this edge takes a polyline corridor instead of failing the layout.
+                        orthogonal = false;
+                        try {
+                            free(route, sc, tc, lane);
+                            routed = true;
+                        } catch (IllegalArgumentException polylineFailure) {
+                            routed = false;
+                        } finally {
+                            orthogonal = true;
+                        }
+                    }
+                    if (!routed) {
+                        if (!lenient) { throw failure; }
+                        // Route-only layouts of arbitrary positions keep going with a direct connector.
+                        route.start = endpoint(source, tc, sv);
+                        route.end = endpoint(target, sc, tv);
+                        route.outgoing = new ArrayList<>();
+                        route.incoming = new ArrayList<>();
+                        route.points = new ArrayList<>();
+                        route.points.add(route.start.anchor);
+                        if (orthogonal) { route.points.add(new Point(route.end.anchor.x, route.start.anchor.y)); }
+                        route.points.add(route.end.anchor);
+                    }
                 }
             }
             simplify(route.points);
@@ -328,14 +353,21 @@ public final class FixedNodeRouter {
     }
 
     private void labels(final Route route) {
+        searchWork = 0;
         try {
             placeLabels(route);
         } catch (IllegalArgumentException failure) {
-            if (!lenient) { throw failure; }
             Candidate fallback = bestEffort(route);
-            if (fallback != null) { apply(fallback, route.edge.getLabels()); }
+            if (fallback == null) { throw failure; }
+            apply(fallback, route.edge.getLabels());
         }
         simplify(route.points);
+    }
+
+    private void spend() {
+        if (lenient && ++searchWork > LENIENT_BUDGET) {
+            throw new IllegalArgumentException("No corridor within the routing budget of a route-only layout");
+        }
     }
 
     private void addSegments(final Route route) {
@@ -803,7 +835,27 @@ public final class FixedNodeRouter {
                 failure = blocked;
             }
         }
-        throw failure;
+        // Every corner is blocked, as between nodes closer than the clearance: the first shape is
+        // kept with direct legs rather than failing the layout.
+        return bestEffortLoop(candidates, 2, 3, 4, failure);
+    }
+
+    /** The first loop candidate with direct legs through its via points, for when no corner is free. */
+    private static List<Point> bestEffortLoop(final List<Object[]> candidates, final int startIndex,
+            final int endIndex, final int viaIndex, final IllegalArgumentException failure) {
+        if (candidates.isEmpty()) {
+            throw failure != null ? failure : new IllegalArgumentException("No self-loop shape");
+        }
+        Object[] candidate = candidates.get(0);
+        @SuppressWarnings("unchecked")
+        List<Point> via = (List<Point>) candidate[viaIndex];
+        List<Point> result = new ArrayList<>();
+        result.add(((Endpoint) candidate[startIndex]).anchor);
+        result.add(((Endpoint) candidate[startIndex]).gateway);
+        result.addAll(via);
+        result.add(((Endpoint) candidate[endIndex]).gateway);
+        result.add(((Endpoint) candidate[endIndex]).anchor);
+        return result;
     }
 
     /**
@@ -868,7 +920,7 @@ public final class FixedNodeRouter {
                 failure = blocked;
             }
         }
-        throw failure;
+        return bestEffortLoop(candidates, 3, 4, 5, failure);
     }
 
     /** Number of direct lines of edges not yet routed that the segment would cross, plus the count so far. */
@@ -886,6 +938,7 @@ public final class FixedNodeRouter {
     /** A visibility graph is built only for edges whose direct segment is obstructed. */
     private List<Point> shortest(final Point start, final Point end, final Set<ElkNode> excluded) {
         if (orthogonal) { return orthogonalShortest(start, end, excluded); }
+        requireOutside(start, end, excluded, "polyline");
         Set<Rect> active = new LinkedHashSet<>();
         searchBlockers = active;
         boolean direct = visible(start, end, excluded);
@@ -933,6 +986,7 @@ public final class FixedNodeRouter {
         java.util.Arrays.fill(previous, -1);
         cost[0] = 0;
         for (int iteration = 0; iteration < count; iteration++) {
+            spend();
             int best = -1;
             double estimate = Double.POSITIVE_INFINITY;
             for (int i = 0; i < count; i++) {
@@ -1023,8 +1077,18 @@ public final class FixedNodeRouter {
         if (edgeLabels.isEmpty()) { return; }
         Candidate best = onRoute(route);
         if (best == null && route.fixed) { best = bestEffort(route); }
-        if (best == null && route.start != null) { best = detour(route); }
-        if (best == null) { best = corridor(route); }
+        // A stage that cannot search, for example from an endpoint sealed in by other footprints,
+        // leaves the label to the next stage; the last resort is the best effort beside the route.
+        if (best == null && route.start != null) {
+            try { best = detour(route); } catch (IllegalArgumentException blocked) { best = null; }
+        }
+        if (best == null) {
+            try { best = corridor(route); } catch (IllegalArgumentException blocked) { best = null; }
+        }
+        if (best == null) { best = bestEffort(route); }
+        if (best == null) {
+            throw new IllegalArgumentException("Edge " + route.edge.getIdentifier() + ": no label position; increase node spacing");
+        }
         if (best.points != null) { route.points = best.points; }
         apply(best, edgeLabels);
     }
@@ -1692,6 +1756,7 @@ public final class FixedNodeRouter {
 
     /** Adaptive orthogonal search: the grid grows with the obstacles that blocked earlier probes. */
     private List<Point> orthogonalShortest(final Point start, final Point end, final Set<ElkNode> excluded) {
+        requireOutside(start, end, excluded, "orthogonal");
         Set<Rect> active = new LinkedHashSet<>();
         for (int pass = 0; pass <= obstacles.size(); pass++) {
             Set<Rect> discovered = new LinkedHashSet<>();
@@ -1705,6 +1770,32 @@ public final class FixedNodeRouter {
         }
         throw new IllegalArgumentException("No orthogonal corridor from (" + start.x + ", " + start.y
                 + ") to (" + end.x + ", " + end.y + "); increase node spacing");
+    }
+
+    /**
+     * From strictly inside an obstacle every segment crosses it, so no corridor can exist; failing
+     * at once spares the adaptive search from discovering every obstacle one pass at a time.
+     */
+    private void requireOutside(final Point start, final Point end, final Set<ElkNode> excluded, final String kind) {
+        Rect enclosure = enclosing(start, excluded);
+        if (enclosure == null) { enclosure = enclosing(end, excluded); }
+        if (enclosure != null) {
+            throw new IllegalArgumentException("No " + kind + " corridor from (" + start.x + ", " + start.y + ") to ("
+                    + end.x + ", " + end.y + "): an endpoint lies inside "
+                    + (enclosure.node == null ? "a label" : GeometryGraph.identifier(enclosure.node)) + "; increase node spacing");
+        }
+    }
+
+    /** An obstacle that strictly contains the point, or null. */
+    private Rect enclosing(final Point point, final Set<ElkNode> excluded) {
+        List<Rect> bucket = rectBucket(cell(point.x), cell(point.y), false);
+        if (bucket == null) { return null; }
+        for (Rect rect : bucket) {
+            if (excluded.contains(rect.node)) { continue; }
+            if (point.x > rect.left + EPSILON && point.x < rect.right - EPSILON
+                    && point.y > rect.top + EPSILON && point.y < rect.bottom - EPSILON) { return rect; }
+        }
+        return null;
     }
 
     private static void addCoordinate(final List<Double> coordinates, final double value) {
@@ -1754,6 +1845,7 @@ public final class FixedNodeRouter {
             int state = heapState[0];
             pop();
             if (stateClosed[state] || itemCost > stateCost[state] + EPSILON) { continue; }
+            spend();
             stateClosed[state] = true;
             int point = state / 4;
             int direction = state % 4;

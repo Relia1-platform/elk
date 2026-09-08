@@ -15,6 +15,7 @@ import java.util.Map;
 import org.eclipse.elk.alg.geometric.GeometricLayoutProvider;
 import org.eclipse.elk.alg.geometric.options.GeometricMode;
 import org.eclipse.elk.alg.geometric.options.GeometricOptions;
+import org.eclipse.elk.alg.geometric.options.GeometricRouting;
 import org.eclipse.elk.alg.geometric.options.TreeRouting;
 import org.eclipse.elk.core.RecursiveGraphLayoutEngine;
 import org.eclipse.elk.core.math.KVector;
@@ -290,6 +291,33 @@ public class GeometricConnectorTest {
         for (KVector point : points(cd)) { topCd = Math.min(topCd, point.y); }
         assertTrue("both cross over the wall", topAb < 80 && topCd < 80);
         assertTrue("the shared channel is split into lanes: " + topAb + " vs " + topCd, Math.abs(topAb - topCd) >= 4 - 1e-9);
+    }
+
+    @Test
+    public void orthogonalRoutingFallsBackToAPolylineWhenNodesAreCloserThanTwiceTheClearance() {
+        ElkNode graph = ElkGraphUtil.createGraph();
+        graph.setIdentifier("close");
+        graph.setProperty(CoreOptions.ALGORITHM, "org.eclipse.elk.geometric");
+        graph.setProperty(GeometricOptions.MODE, GeometricMode.TREE);
+        graph.setProperty(GeometricOptions.ROUTING, GeometricRouting.ORTHOGONAL);
+        graph.setProperty(CoreOptions.SPACING_NODE_NODE, 10.0);
+        graph.setProperty(CoreOptions.SPACING_EDGE_NODE, 8.0);
+        ElkNode previous = null;
+        for (int i = 0; i < 6; i++) {
+            ElkNode node = ElkGraphUtil.createNode(graph);
+            node.setIdentifier("n" + i);
+            node.setDimensions(40, 30);
+            if (previous != null) {
+                ElkGraphUtil.createSimpleEdge(previous, node).setIdentifier("e" + i);
+                if (i % 2 == 0) { ElkGraphUtil.createSimpleEdge(graph.getChildren().get(0), node).setIdentifier("x" + i); }
+            }
+            previous = node;
+        }
+        new RecursiveGraphLayoutEngine().layout(graph, new BasicProgressMonitor());
+        for (ElkEdge edge : graph.getContainedEdges()) {
+            assertEquals(edge.getIdentifier() + " is routed", 1, edge.getSections().size());
+            for (KVector point : points(edge)) { assertTrue(Double.isFinite(point.x) && Double.isFinite(point.y)); }
+        }
     }
 
     @Test
