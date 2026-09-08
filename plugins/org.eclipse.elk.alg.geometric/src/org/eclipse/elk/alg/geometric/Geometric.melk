@@ -53,6 +53,8 @@ algorithm geometric(GeometricLayoutProvider) {
     supports ring.anchorId
     supports tree.routing
     supports routing
+    supports refine
+    supports refineGrid
 }
 
 option mode: GeometricMode {
@@ -71,6 +73,18 @@ option routing: GeometricRouting {
     label "Geometric Routing"
     description "POLYLINE draws straight connectors; ORTHOGONAL draws axis-aligned connectors that leave and enter nodes through their facing sides, spread along shared sides and nudged apart in shared channels."
     default = GeometricRouting.POLYLINE
+    targets parents
+}
+option refine: boolean {
+    label "Refine Positions"
+    description "Polish the placed positions with small moves that keep node spacing and order: straighten connectors whose ends almost share an axis, align nodes that almost share a row or column, equalize nearly equal gaps, and snap node borders to the refinement grid. Applies to every mode, including FIXED positions from another algorithm."
+    default = false
+    targets parents
+}
+option refineGrid: double {
+    label "Refinement Grid"
+    description "Grid that refined node borders snap to, in pixels; 0 keeps positions off the grid."
+    default = 1
     targets parents
 }
 option order: GeometricOrder {

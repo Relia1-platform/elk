@@ -69,6 +69,16 @@ public final class GeometryBounds {
      */
     public static void normalize(final ElkNode graph, final ElkNode center, final boolean includeEdges,
             final Runnable reroute) {
+        normalize(graph, center, includeEdges, reroute, 0);
+    }
+
+    /**
+     * Normalizes like above and, for a positive grid, rounds the translation up to a multiple of it
+     * so that positions snapped to that grid stay on it in the final frame; the size grows by less
+     * than one grid step. A fixed graph size is never rounded.
+     */
+    public static void normalize(final ElkNode graph, final ElkNode center, final boolean includeEdges,
+            final Runnable reroute, final double grid) {
         GeometryBounds bounds = measure(graph, includeEdges);
         ElkPadding padding = graph.getProperty(CoreOptions.PADDING);
         double width = bounds.maxX - bounds.minX + padding.getHorizontal();
@@ -83,7 +93,16 @@ public final class GeometryBounds {
             dx = width / 2 - cx;
             dy = height / 2 - cy;
         }
-        if (graph.getProperty(CoreOptions.NODE_SIZE_FIXED_GRAPH_SIZE)) {
+        boolean fixedSize = graph.getProperty(CoreOptions.NODE_SIZE_FIXED_GRAPH_SIZE);
+        if (grid > 0 && !fixedSize) {
+            double roundedDx = Math.ceil(dx / grid - 1e-9) * grid;
+            double roundedDy = Math.ceil(dy / grid - 1e-9) * grid;
+            width = Math.ceil((width + roundedDx - dx) / grid - 1e-9) * grid;
+            height = Math.ceil((height + roundedDy - dy) / grid - 1e-9) * grid;
+            dx = roundedDx;
+            dy = roundedDy;
+        }
+        if (fixedSize) {
             double epsilon = 1e-6 * Math.max(1, Math.max(width, height));
             if (width > graph.getWidth() + epsilon || height > graph.getHeight() + epsilon) {
                 throw new IllegalArgumentException("Geometric layout cannot fit the fixed graph size: requires "

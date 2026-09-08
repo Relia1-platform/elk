@@ -1,0 +1,276 @@
+{
+  "id": "mixed-refine-labels",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    "elk.geometric.mode": "CLUSTER",
+    "elk.geometric.refine": "true",
+    "elk.geometric.order": "STABLE_ID"
+  },
+  "children": [
+    {
+      "id": "n00",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n01",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n02",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n03",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n04",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n05",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n06",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n07",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n08",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n09",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n10",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n11",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n12",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "n13",
+      "width": 40,
+      "height": 30
+    }
+  ],
+  "edges": [
+    {
+      "id": "n00-n01",
+      "sources": [
+        "n00"
+      ],
+      "targets": [
+        "n01"
+      ]
+    },
+    {
+      "id": "n01-n02",
+      "sources": [
+        "n01"
+      ],
+      "targets": [
+        "n02"
+      ],
+      "labels": [
+        {
+          "id": "n01-n02-l",
+          "text": "l1",
+          "width": 43,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "n02-n03",
+      "sources": [
+        "n02"
+      ],
+      "targets": [
+        "n03"
+      ]
+    },
+    {
+      "id": "n03-n04",
+      "sources": [
+        "n03"
+      ],
+      "targets": [
+        "n04"
+      ],
+      "labels": [
+        {
+          "id": "n03-n04-l",
+          "text": "l3",
+          "width": 69,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "n04-n00",
+      "sources": [
+        "n04"
+      ],
+      "targets": [
+        "n00"
+      ]
+    },
+    {
+      "id": "n04-n05",
+      "sources": [
+        "n04"
+      ],
+      "targets": [
+        "n05"
+      ],
+      "labels": [
+        {
+          "id": "n04-n05-l",
+          "text": "l5",
+          "width": 45,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "n05-n06",
+      "sources": [
+        "n05"
+      ],
+      "targets": [
+        "n06"
+      ]
+    },
+    {
+      "id": "n06-n07",
+      "sources": [
+        "n06"
+      ],
+      "targets": [
+        "n07"
+      ],
+      "labels": [
+        {
+          "id": "n06-n07-l",
+          "text": "l7",
+          "width": 71,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "n07-n08",
+      "sources": [
+        "n07"
+      ],
+      "targets": [
+        "n08"
+      ]
+    },
+    {
+      "id": "n08-n09",
+      "sources": [
+        "n08"
+      ],
+      "targets": [
+        "n09"
+      ],
+      "labels": [
+        {
+          "id": "n08-n09-l",
+          "text": "l9",
+          "width": 47,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "n09-n10",
+      "sources": [
+        "n09"
+      ],
+      "targets": [
+        "n10"
+      ]
+    },
+    {
+      "id": "n10-n11",
+      "sources": [
+        "n10"
+      ],
+      "targets": [
+        "n11"
+      ],
+      "labels": [
+        {
+          "id": "n10-n11-l",
+          "text": "l11",
+          "width": 73,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "n11-n12",
+      "sources": [
+        "n11"
+      ],
+      "targets": [
+        "n12"
+      ]
+    },
+    {
+      "id": "n12-n13",
+      "sources": [
+        "n12"
+      ],
+      "targets": [
+        "n13"
+      ],
+      "labels": [
+        {
+          "id": "n12-n13-l",
+          "text": "l13",
+          "width": 49,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "n13-n09",
+      "sources": [
+        "n13"
+      ],
+      "targets": [
+        "n09"
+      ]
+    }
+  ]
+}

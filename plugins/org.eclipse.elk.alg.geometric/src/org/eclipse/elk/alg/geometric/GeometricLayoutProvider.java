@@ -11,6 +11,7 @@ import org.eclipse.elk.alg.common.GeometryClearance;
 import org.eclipse.elk.alg.common.GeometryGraph;
 import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
 import org.eclipse.elk.alg.common.GeometryPacking;
+import org.eclipse.elk.alg.common.LayoutRefinement;
 import org.eclipse.elk.alg.common.NodeMicroLayout;
 import org.eclipse.elk.alg.common.TreeBusRouter;
 import org.eclipse.elk.alg.geometric.options.GeometricMode;
@@ -163,6 +164,17 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
                     scope.getProperty(CoreOptions.ASPECT_RATIO));
             graph.applyPositions();
         }
+        boolean refine = scope.getProperty(GeometricOptions.REFINE);
+        if (refine) {
+            // Placed components keep their component spacing; given positions promise only the node spacing.
+            double nodeSpacing = Math.max(0, scope.getProperty(CoreOptions.SPACING_NODE_NODE));
+            int moved = LayoutRefinement.refine(graph, components, nodeSpacing,
+                    routeOnly ? nodeSpacing : Math.max(0, scope.getProperty(CoreOptions.SPACING_COMPONENT_COMPONENT)),
+                    scope.getProperty(GeometricOptions.REFINE_GRID),
+                    scope.getProperty(CoreOptions.NODE_SIZE_FIXED_GRAPH_SIZE));
+            graph.applyPositions();
+            monitor.log("Geometric refine: " + moved + " moves");
+        }
         stage.done();
         stage = monitor.subTask(1);
         stage.begin("Routing", 1);
@@ -171,7 +183,8 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
         stage.done();
         stage = monitor.subTask(1);
         stage.begin("Bounds", 1);
-        GeometryBounds.normalize(scope, center, true, reroute);
+        GeometryBounds.normalize(scope, center, true, reroute,
+                refine ? Math.max(0, scope.getProperty(GeometricOptions.REFINE_GRID)) : 0);
         stage.done();
         monitor.done();
     }
