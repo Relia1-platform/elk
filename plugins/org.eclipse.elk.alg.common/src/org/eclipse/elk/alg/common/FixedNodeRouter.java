@@ -47,11 +47,21 @@ public final class FixedNodeRouter {
     private static final int DETOUR_SEARCHES = 6;
     /** Positions tried on each side of the preferred position along a segment. */
     private static final int SLIDE_STEPS = 6;
+    /** Cells of dense bucket arrays kept around the obstacles, and the most cells they may hold. */
+    private static final int GRID_MARGIN = 4;
+    private static final int GRID_LIMIT = 1 << 18;
 
     private final GeometryGraph graph;
     private final List<Rect> obstacles = new ArrayList<>();
     private final Map<ElkNode, Rect> rectangles = new HashMap<>();
+    /** Obstacle and segment buckets by cell: dense arrays around the obstacles, maps beyond them. */
     private final Map<Integer, List<Rect>> cells = new HashMap<>();
+    private final List<Rect>[] rectGrid;
+    private final List<Segment>[] segmentGrid;
+    private final int gridMinX;
+    private final int gridMinY;
+    private final int gridWidth;
+    private final int gridHeight;
     private final Map<SegmentKey, Rect> visibilityCache = new HashMap<>();
     /** Cache value for a free line of sight, so that one lookup answers a visibility query. */
     private static final Rect NO_BLOCKER = new Rect(0, 0, 0, 0, null, 0);
@@ -137,6 +147,25 @@ public final class FixedNodeRouter {
             });
         }
         cellSize = Math.max(16, total / Math.max(1, obstacles.size()));
+        int minX = Integer.MAX_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (Rect rect : obstacles) {
+            minX = Math.min(minX, cell(rect.left));
+            maxX = Math.max(maxX, cell(rect.right));
+            minY = Math.min(minY, cell(rect.top));
+            maxY = Math.max(maxY, cell(rect.bottom));
+        }
+        long width = obstacles.isEmpty() ? 0 : (long) maxX - minX + 1 + 2 * GRID_MARGIN;
+        long height = obstacles.isEmpty() ? 0 : (long) maxY - minY + 1 + 2 * GRID_MARGIN;
+        boolean dense = width > 0 && width * height <= GRID_LIMIT;
+        gridMinX = dense ? minX - GRID_MARGIN : 0;
+        gridMinY = dense ? minY - GRID_MARGIN : 0;
+        gridWidth = dense ? (int) width : 0;
+        gridHeight = dense ? (int) height : 0;
+        rectGrid = newBuckets(gridWidth * gridHeight);
+        segmentGrid = newBuckets(gridWidth * gridHeight);
         for (Rect rect : obstacles) { index(rect); }
         // Descendant scopes are already laid out: their routes and labels are fixed obstacles for
         // edges that leave a group from the inside, which the group footprint itself does not stop.
@@ -318,7 +347,7 @@ public final class FixedNodeRouter {
         routedSegments.add(segment);
         for (int x = cell(Math.min(segment.a.x, segment.b.x)); x <= cell(Math.max(segment.a.x, segment.b.x)); x++) {
             for (int y = cell(Math.min(segment.a.y, segment.b.y)); y <= cell(Math.max(segment.a.y, segment.b.y)); y++) {
-                segmentCells.computeIfAbsent(cellKey(x, y), key -> new ArrayList<>()).add(segment);
+                segmentBucket(x, y, true).add(segment);
             }
         }
     }
@@ -329,7 +358,7 @@ public final class FixedNodeRouter {
             if (segment.owner != edge) { kept.add(segment); continue; }
             for (int x = cell(Math.min(segment.a.x, segment.b.x)); x <= cell(Math.max(segment.a.x, segment.b.x)); x++) {
                 for (int y = cell(Math.min(segment.a.y, segment.b.y)); y <= cell(Math.max(segment.a.y, segment.b.y)); y++) {
-                    List<Segment> bucket = segmentCells.get(cellKey(x, y));
+                    List<Segment> bucket = segmentBucket(x, y, false);
                     while (bucket != null && bucket.remove(segment)) { }
                 }
             }
@@ -343,7 +372,7 @@ public final class FixedNodeRouter {
         int visit = ++stamp;
         for (int x = cell(rect.left); x <= cell(rect.right); x++) {
             for (int y = cell(rect.top); y <= cell(rect.bottom); y++) {
-                List<Segment> bucket = segmentCells.get(cellKey(x, y));
+                List<Segment> bucket = segmentBucket(x, y, false);
                 if (bucket == null) { continue; }
                 for (Segment segment : bucket) {
                     if (segment.mark == visit) { continue; }
@@ -358,6 +387,7 @@ public final class FixedNodeRouter {
     private void reindexSegments(final List<Segment> segments) {
         routedSegments.clear();
         segmentCells.clear();
+        java.util.Arrays.fill(segmentGrid, null);
         for (Segment segment : segments) { addSegment(segment); }
     }
 
@@ -970,7 +1000,7 @@ public final class FixedNodeRouter {
             int visit = ++stamp;
             for (int x = minX; x <= maxX; x++) {
                 for (int y = minY; y <= maxY; y++) {
-                    List<Rect> bucket = cells.get(cellKey(x, y));
+                    List<Rect> bucket = rectBucket(x, y, false);
                     if (bucket == null) { continue; }
                     for (Rect rect : bucket) {
                         if (rect.mark == visit) { continue; }
@@ -1073,7 +1103,7 @@ public final class FixedNodeRouter {
         int visit = ++stamp;
         for (int x = cell(region.left); x <= cell(region.right); x++) {
             for (int y = cell(region.top); y <= cell(region.bottom); y++) {
-                List<Rect> bucket = cells.get(cellKey(x, y));
+                List<Rect> bucket = rectBucket(x, y, false);
                 if (bucket == null) { continue; }
                 for (Rect obstacle : bucket) {
                     if (obstacle.mark == visit) { continue; }
@@ -1401,7 +1431,7 @@ public final class FixedNodeRouter {
             obstacles.remove(rect);
             for (int x = cell(rect.left); x <= cell(rect.right); x++) {
                 for (int y = cell(rect.top); y <= cell(rect.bottom); y++) {
-                    List<Rect> bucket = cells.get(cellKey(x, y));
+                    List<Rect> bucket = rectBucket(x, y, false);
                     while (bucket != null && bucket.remove(rect)) { }
                 }
             }
@@ -1442,7 +1472,7 @@ public final class FixedNodeRouter {
             int visit = ++stamp;
             for (int x = minX; x <= maxX; x++) {
                 for (int y = minY; y <= maxY; y++) {
-                    List<Segment> bucket = segmentCells.get(cellKey(x, y));
+                    List<Segment> bucket = segmentBucket(x, y, false);
                     if (bucket == null) { continue; }
                     for (Segment segment : bucket) {
                         if (segment.mark == visit) { continue; }
@@ -1481,7 +1511,7 @@ public final class FixedNodeRouter {
     private void index(final Rect rect) {
         for (int x = cell(rect.left); x <= cell(rect.right); x++) {
             for (int y = cell(rect.top); y <= cell(rect.bottom); y++) {
-                cells.computeIfAbsent(cellKey(x, y), key -> new ArrayList<>()).add(rect);
+                rectBucket(x, y, true).add(rect);
             }
         }
     }
@@ -1956,6 +1986,51 @@ public final class FixedNodeRouter {
     private int cell(final double coordinate) { return (int) Math.floor(coordinate / cellSize); }
     /** Packs a cell coordinate pair into one key; a collision beyond the packed range only widens a bucket. */
     private static Integer cellKey(final int x, final int y) { return Integer.valueOf(x * 65536 + y); }
+
+    @SuppressWarnings("unchecked")
+    private static <T> List<T>[] newBuckets(final int count) { return (List<T>[]) new List[count]; }
+
+    private List<Rect> rectBucket(final int x, final int y, final boolean create) {
+        int gx = x - gridMinX;
+        int gy = y - gridMinY;
+        if (gx >= 0 && gy >= 0 && gx < gridWidth && gy < gridHeight) {
+            int index = gx * gridHeight + gy;
+            List<Rect> bucket = rectGrid[index];
+            if (bucket == null && create) {
+                bucket = new ArrayList<>();
+                rectGrid[index] = bucket;
+            }
+            return bucket;
+        }
+        Integer key = cellKey(x, y);
+        List<Rect> bucket = cells.get(key);
+        if (bucket == null && create) {
+            bucket = new ArrayList<>();
+            cells.put(key, bucket);
+        }
+        return bucket;
+    }
+
+    private List<Segment> segmentBucket(final int x, final int y, final boolean create) {
+        int gx = x - gridMinX;
+        int gy = y - gridMinY;
+        if (gx >= 0 && gy >= 0 && gx < gridWidth && gy < gridHeight) {
+            int index = gx * gridHeight + gy;
+            List<Segment> bucket = segmentGrid[index];
+            if (bucket == null && create) {
+                bucket = new ArrayList<>();
+                segmentGrid[index] = bucket;
+            }
+            return bucket;
+        }
+        Integer key = cellKey(x, y);
+        List<Segment> bucket = segmentCells.get(key);
+        if (bucket == null && create) {
+            bucket = new ArrayList<>();
+            segmentCells.put(key, bucket);
+        }
+        return bucket;
+    }
     private static double distance(final Point a, final Point b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
     private static final class Endpoint {
