@@ -9,7 +9,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.PriorityQueue;
 import java.util.Set;
 
 import org.eclipse.elk.alg.common.EdgeLabelReservation.Margins;
@@ -52,10 +51,14 @@ public final class FixedNodeRouter {
     private final GeometryGraph graph;
     private final List<Rect> obstacles = new ArrayList<>();
     private final Map<ElkNode, Rect> rectangles = new HashMap<>();
-    private final Map<String, List<Rect>> cells = new HashMap<>();
-    private final Map<String, Rect> visibilityCache = new HashMap<>();
+    private final Map<Integer, List<Rect>> cells = new HashMap<>();
+    private final Map<SegmentKey, Rect> visibilityCache = new HashMap<>();
+    /** Cache value for a free line of sight, so that one lookup answers a visibility query. */
+    private static final Rect NO_BLOCKER = new Rect(0, 0, 0, 0, null, 0);
     private Set<Rect> searchBlockers;
     private final List<Segment> routedSegments = new ArrayList<>();
+    /** Routed segments by cell, so crossing counts only test nearby connectors. */
+    private final Map<Integer, List<Segment>> segmentCells = new HashMap<>();
     private final List<Segment> directLines = new ArrayList<>();
     private final Map<ElkEdge, List<Point>> prerouted = new HashMap<>();
     private final Map<ElkEdge, List<Segment>> fixedSegments = new HashMap<>();
@@ -68,6 +71,28 @@ public final class FixedNodeRouter {
     /** Sides chosen by probing in orthogonal mode: edge id + role to the outward side vector. */
     private final Map<String, double[]> chosenSides = new HashMap<>();
     private int routing;
+    /** Query stamp for bucket walks: an object marked with the current stamp was already tested. */
+    private int stamp;
+    // Scratch space of the orthogonal search, reused across searches; an entry is valid only when
+    // its stamp matches the current search. States are grid points times four entry directions,
+    // grid edges are two per point (towards +x and towards +y).
+    private int searchStamp;
+    private int[] stateStamp = new int[0];
+    private double[] stateCost = new double[0];
+    private int[] stateBends = new int[0];
+    private int[] stateCrossings = new int[0];
+    private int[] statePrevious = new int[0];
+    private boolean[] stateClosed = new boolean[0];
+    private int[] edgeStamp = new int[0];
+    private boolean[] edgeOpen = new boolean[0];
+    private int[] edgeCrossings = new int[0];
+    private double[] edgeLengths = new double[0];
+    /** Binary heap of open search states, ordered by cost, bends, crossings, and state. */
+    private double[] heapCost = new double[0];
+    private int[] heapBends = new int[0];
+    private int[] heapCrossings = new int[0];
+    private int[] heapState = new int[0];
+    private int heapSize;
     private final double clearance;
     private final double cellSize;
     private final Margins margins;
@@ -125,7 +150,7 @@ public final class FixedNodeRouter {
                                 ? new Point(frame.x + section.getBendPoints().get(b).getX(),
                                         frame.y + section.getBendPoints().get(b).getY())
                                 : new Point(frame.x + section.getEndX(), frame.y + section.getEndY());
-                        routedSegments.add(new Segment(previous, next));
+                        addSegment(new Segment(previous, next));
                         previous = next;
                     }
                 }
@@ -255,8 +280,7 @@ public final class FixedNodeRouter {
             // Nudging replaced route points; rebuild the segment index from the final routes.
             List<Segment> inherited = new ArrayList<>();
             for (Segment segment : routedSegments) { if (segment.owner == null) { inherited.add(segment); } }
-            routedSegments.clear();
-            routedSegments.addAll(inherited);
+            reindexSegments(inherited);
             for (Route route : pending) { if (!route.fixed) { addSegments(route); } }
             for (Route route : pending) {
                 routing = route.index;
@@ -286,15 +310,55 @@ public final class FixedNodeRouter {
     private void addSegments(final Route route) {
         List<Point> points = route.points;
         for (int i = 1; i < points.size(); i++) {
-            routedSegments.add(new Segment(points.get(i - 1), points.get(i), route.edge));
+            addSegment(new Segment(points.get(i - 1), points.get(i), route.edge));
+        }
+    }
+
+    private void addSegment(final Segment segment) {
+        routedSegments.add(segment);
+        for (int x = cell(Math.min(segment.a.x, segment.b.x)); x <= cell(Math.max(segment.a.x, segment.b.x)); x++) {
+            for (int y = cell(Math.min(segment.a.y, segment.b.y)); y <= cell(Math.max(segment.a.y, segment.b.y)); y++) {
+                segmentCells.computeIfAbsent(cellKey(x, y), key -> new ArrayList<>()).add(segment);
+            }
         }
     }
 
     private void removeSegments(final ElkEdge edge) {
         List<Segment> kept = new ArrayList<>();
-        for (Segment segment : routedSegments) { if (segment.owner != edge) { kept.add(segment); } }
+        for (Segment segment : routedSegments) {
+            if (segment.owner != edge) { kept.add(segment); continue; }
+            for (int x = cell(Math.min(segment.a.x, segment.b.x)); x <= cell(Math.max(segment.a.x, segment.b.x)); x++) {
+                for (int y = cell(Math.min(segment.a.y, segment.b.y)); y <= cell(Math.max(segment.a.y, segment.b.y)); y++) {
+                    List<Segment> bucket = segmentCells.get(cellKey(x, y));
+                    while (bucket != null && bucket.remove(segment)) { }
+                }
+            }
+        }
         routedSegments.clear();
         routedSegments.addAll(kept);
+    }
+
+    /** Whether a routed segment of another edge, or an inherited one, crosses the rectangle. */
+    private boolean crossesRoutedSegment(final Rect rect, final ElkEdge owner) {
+        int visit = ++stamp;
+        for (int x = cell(rect.left); x <= cell(rect.right); x++) {
+            for (int y = cell(rect.top); y <= cell(rect.bottom); y++) {
+                List<Segment> bucket = segmentCells.get(cellKey(x, y));
+                if (bucket == null) { continue; }
+                for (Segment segment : bucket) {
+                    if (segment.mark == visit) { continue; }
+                    segment.mark = visit;
+                    if (segment.owner != owner && rect.crosses(segment.a, segment.b)) { return true; }
+                }
+            }
+        }
+        return false;
+    }
+
+    private void reindexSegments(final List<Segment> segments) {
+        routedSegments.clear();
+        segmentCells.clear();
+        for (Segment segment : segments) { addSegment(segment); }
     }
 
     private void emit(final Route route) {
@@ -874,21 +938,19 @@ public final class FixedNodeRouter {
     }
 
     private boolean visible(final Point a, final Point b, final Set<ElkNode> excluded) {
-        String key = null;
+        SegmentKey key = null;
         if (excluded.isEmpty()) {
-            String first = a.x + ":" + a.y;
-            String second = b.x + ":" + b.y;
-            key = first.compareTo(second) < 0 ? first + "/" + second : second + "/" + first;
-            if (visibilityCache.containsKey(key)) {
-                Rect blocker = visibilityCache.get(key);
-                if (blocker != null && searchBlockers != null) { searchBlockers.add(blocker); }
-                return blocker == null;
+            key = new SegmentKey(a, b);
+            Rect cached = visibilityCache.get(key);
+            if (cached != null) {
+                if (cached != NO_BLOCKER && searchBlockers != null) { searchBlockers.add(cached); }
+                return cached == NO_BLOCKER;
             }
         }
         Rect blocker = blockingRectangle(a, b, excluded);
         if (key != null) {
             if (visibilityCache.size() >= 50000) { visibilityCache.clear(); }
-            visibilityCache.put(key, blocker);
+            visibilityCache.put(key, blocker == null ? NO_BLOCKER : blocker);
         }
         if (blocker != null && searchBlockers != null) { searchBlockers.add(blocker); }
         return blocker == null;
@@ -905,13 +967,15 @@ public final class FixedNodeRouter {
                 if (!excluded.contains(rect.node) && rect.crosses(a, b)) { return rect; }
             }
         } else {
-            Set<Rect> tested = new HashSet<>();
+            int visit = ++stamp;
             for (int x = minX; x <= maxX; x++) {
                 for (int y = minY; y <= maxY; y++) {
-                    List<Rect> bucket = cells.get(x + ":" + y);
+                    List<Rect> bucket = cells.get(cellKey(x, y));
                     if (bucket == null) { continue; }
                     for (Rect rect : bucket) {
-                        if (tested.add(rect) && !excluded.contains(rect.node) && rect.crosses(a, b)) { return rect; }
+                        if (rect.mark == visit) { continue; }
+                        rect.mark = visit;
+                        if (!excluded.contains(rect.node) && rect.crosses(a, b)) { return rect; }
                     }
                 }
             }
@@ -1006,13 +1070,14 @@ public final class FixedNodeRouter {
         double cap = Math.max(margins.labelNode, clearance);
         double margin = cap;
         Rect region = rect.inflate(Math.max(cap, margins.labelLabel) + EPSILON);
-        Set<Rect> tested = new HashSet<>();
+        int visit = ++stamp;
         for (int x = cell(region.left); x <= cell(region.right); x++) {
             for (int y = cell(region.top); y <= cell(region.bottom); y++) {
-                List<Rect> bucket = cells.get(x + ":" + y);
+                List<Rect> bucket = cells.get(cellKey(x, y));
                 if (bucket == null) { continue; }
                 for (Rect obstacle : bucket) {
-                    if (!tested.add(obstacle)) { continue; }
+                    if (obstacle.mark == visit) { continue; }
+                    obstacle.mark = visit;
                     if (obstacle.node != null) {
                         if (route.excluded.contains(obstacle.node)) { continue; }
                         double gap = rect.gap(obstacle.deflate(obstacle.inflation));
@@ -1027,10 +1092,7 @@ public final class FixedNodeRouter {
             }
         }
         Rect guarded = rect.inflate(margins.edgeLabel);
-        for (Segment segment : routedSegments) {
-            if (segment.owner == route.edge) { continue; }
-            if (guarded.crosses(segment.a, segment.b)) { return null; }
-        }
+        if (crossesRoutedSegment(guarded, route.edge)) { return null; }
         for (Map.Entry<ElkEdge, List<Segment>> entry : fixedSegments.entrySet()) {
             if (entry.getKey() == route.edge) { continue; }
             for (Segment segment : entry.getValue()) {
@@ -1339,8 +1401,8 @@ public final class FixedNodeRouter {
             obstacles.remove(rect);
             for (int x = cell(rect.left); x <= cell(rect.right); x++) {
                 for (int y = cell(rect.top); y <= cell(rect.bottom); y++) {
-                    List<Rect> bucket = cells.get(x + ":" + y);
-                    if (bucket != null) { bucket.remove(rect); }
+                    List<Rect> bucket = cells.get(cellKey(x, y));
+                    while (bucket != null && bucket.remove(rect)) { }
                 }
             }
         }
@@ -1366,10 +1428,31 @@ public final class FixedNodeRouter {
 
     private int crossingCount(final Point a, final Point b) {
         int count = 0;
-        for (Segment segment : routedSegments) {
-            if (segment.owner != null && segment.owner == current) { continue; }
-            if (side(a, b, segment.a) * side(a, b, segment.b) < -EPSILON
-                    && side(segment.a, segment.b, a) * side(segment.a, segment.b, b) < -EPSILON) { count++; }
+        int minX = cell(Math.min(a.x, b.x));
+        int maxX = cell(Math.max(a.x, b.x));
+        int minY = cell(Math.min(a.y, b.y));
+        int maxY = cell(Math.max(a.y, b.y));
+        if ((long) (maxX - minX + 1) * (maxY - minY + 1) > routedSegments.size() * 4L) {
+            for (Segment segment : routedSegments) {
+                if (segment.owner != null && segment.owner == current) { continue; }
+                if (side(a, b, segment.a) * side(a, b, segment.b) < -EPSILON
+                        && side(segment.a, segment.b, a) * side(segment.a, segment.b, b) < -EPSILON) { count++; }
+            }
+        } else {
+            int visit = ++stamp;
+            for (int x = minX; x <= maxX; x++) {
+                for (int y = minY; y <= maxY; y++) {
+                    List<Segment> bucket = segmentCells.get(cellKey(x, y));
+                    if (bucket == null) { continue; }
+                    for (Segment segment : bucket) {
+                        if (segment.mark == visit) { continue; }
+                        segment.mark = visit;
+                        if (segment.owner != null && segment.owner == current) { continue; }
+                        if (side(a, b, segment.a) * side(a, b, segment.b) < -EPSILON
+                                && side(segment.a, segment.b, a) * side(segment.a, segment.b, b) < -EPSILON) { count++; }
+                    }
+                }
+            }
         }
         for (Map.Entry<ElkEdge, List<Segment>> entry : fixedSegments.entrySet()) {
             if (entry.getKey() == current) { continue; }
@@ -1398,7 +1481,7 @@ public final class FixedNodeRouter {
     private void index(final Rect rect) {
         for (int x = cell(rect.left); x <= cell(rect.right); x++) {
             for (int y = cell(rect.top); y <= cell(rect.bottom); y++) {
-                cells.computeIfAbsent(x + ":" + y, key -> new ArrayList<>()).add(rect);
+                cells.computeIfAbsent(cellKey(x, y), key -> new ArrayList<>()).add(rect);
             }
         }
     }
@@ -1623,32 +1706,22 @@ public final class FixedNodeRouter {
         double bendPenalty = 2 * Math.max(clearance, 4);
         double crossingPenalty = Math.max(clearance, 4) / 2;
         // A state is a grid point plus the direction it was entered from: 0 +x, 1 -x, 2 +y, 3 -y.
-        double[] cost = new double[count * 4];
-        int[] bends = new int[count * 4];
-        int[] crossings = new int[count * 4];
-        int[] previous = new int[count * 4];
-        boolean[] closed = new boolean[count * 4];
-        java.util.Arrays.fill(cost, Double.POSITIVE_INFINITY);
-        java.util.Arrays.fill(previous, -1);
-        PriorityQueue<double[]> queue = new PriorityQueue<>((p, q) -> {
-            int byCost = Double.compare(p[0], q[0]);
-            if (byCost != 0) { return byCost; }
-            int byBends = Double.compare(p[1], q[1]);
-            if (byBends != 0) { return byBends; }
-            int byCrossings = Double.compare(p[2], q[2]);
-            return byCrossings != 0 ? byCrossings : Double.compare(p[3], q[3]);
-        });
+        int stamp = ++searchStamp;
+        ensureSearchCapacity(count);
+        heapSize = 0;
         for (int direction = 0; direction < 4; direction++) {
             int state = startIndex * 4 + direction;
-            cost[state] = 0;
-            queue.add(new double[] {0, 0, 0, state});
+            touch(state, stamp);
+            stateCost[state] = 0;
+            push(0, 0, 0, state);
         }
         int reached = -1;
-        while (!queue.isEmpty()) {
-            double[] item = queue.poll();
-            int state = (int) item[3];
-            if (closed[state] || item[0] > cost[state] + EPSILON) { continue; }
-            closed[state] = true;
+        while (heapSize > 0) {
+            double itemCost = heapCost[0];
+            int state = heapState[0];
+            pop();
+            if (stateClosed[state] || itemCost > stateCost[state] + EPSILON) { continue; }
+            stateClosed[state] = true;
             int point = state / 4;
             int direction = state % 4;
             if (point == endIndex) { reached = state; break; }
@@ -1660,29 +1733,41 @@ public final class FixedNodeRouter {
                 if (ni < 0 || nj < 0 || ni >= width || nj >= height) { continue; }
                 int neighbor = ni * height + nj;
                 int nextState = neighbor * 4 + next;
-                if (closed[nextState]) { continue; }
-                Point a = new Point(xs.get(i), ys.get(j));
-                Point b = new Point(xs.get(ni), ys.get(nj));
-                if (!visible(a, b, excluded)) { continue; }
-                int crossed = crossingCount(a, b);
-                double candidate = cost[state] + distance(a, b) + (next != direction ? bendPenalty : 0)
+                touch(nextState, stamp);
+                if (stateClosed[nextState]) { continue; }
+                // Every grid edge is tested once per search, whichever state reaches it first.
+                int edge = 2 * (next == 0 || next == 2 ? point : neighbor) + (next < 2 ? 0 : 1);
+                if (edgeStamp[edge] != stamp) {
+                    edgeStamp[edge] = stamp;
+                    Point a = new Point(xs.get(i), ys.get(j));
+                    Point b = new Point(xs.get(ni), ys.get(nj));
+                    boolean open = visible(a, b, excluded);
+                    edgeOpen[edge] = open;
+                    if (open) {
+                        edgeCrossings[edge] = crossingCount(a, b);
+                        edgeLengths[edge] = distance(a, b);
+                    }
+                }
+                if (!edgeOpen[edge]) { continue; }
+                int crossed = edgeCrossings[edge];
+                double candidate = stateCost[state] + edgeLengths[edge] + (next != direction ? bendPenalty : 0)
                         + crossingPenalty * crossed;
-                int candidateBends = bends[state] + (next != direction ? 1 : 0);
-                int candidateCrossings = crossings[state] + crossed;
-                if (candidate < cost[nextState] - EPSILON || Math.abs(candidate - cost[nextState]) <= EPSILON
-                        && (candidateBends < bends[nextState] || candidateBends == bends[nextState]
-                        && candidateCrossings < crossings[nextState])) {
-                    cost[nextState] = candidate;
-                    bends[nextState] = candidateBends;
-                    crossings[nextState] = candidateCrossings;
-                    previous[nextState] = state;
-                    queue.add(new double[] {candidate, candidateBends, candidateCrossings, nextState});
+                int candidateBends = stateBends[state] + (next != direction ? 1 : 0);
+                int candidateCrossings = stateCrossings[state] + crossed;
+                if (candidate < stateCost[nextState] - EPSILON || Math.abs(candidate - stateCost[nextState]) <= EPSILON
+                        && (candidateBends < stateBends[nextState] || candidateBends == stateBends[nextState]
+                        && candidateCrossings < stateCrossings[nextState])) {
+                    stateCost[nextState] = candidate;
+                    stateBends[nextState] = candidateBends;
+                    stateCrossings[nextState] = candidateCrossings;
+                    statePrevious[nextState] = state;
+                    push(candidate, candidateBends, candidateCrossings, nextState);
                 }
             }
         }
         if (reached < 0) { return null; }
         List<Point> result = new ArrayList<>();
-        for (int state = reached; state >= 0; state = previous[state]) {
+        for (int state = reached; state >= 0; state = statePrevious[state]) {
             int point = state / 4;
             result.add(new Point(xs.get(point / height), ys.get(point % height)));
             if (point == startIndex) { break; }
@@ -1690,6 +1775,96 @@ public final class FixedNodeRouter {
         Collections.reverse(result);
         simplify(result);
         return result;
+    }
+
+    private void ensureSearchCapacity(final int points) {
+        if (stateStamp.length >= points * 4) { return; }
+        int states = Math.max(points * 4, 2 * stateStamp.length);
+        stateStamp = new int[states];
+        stateCost = new double[states];
+        stateBends = new int[states];
+        stateCrossings = new int[states];
+        statePrevious = new int[states];
+        stateClosed = new boolean[states];
+        edgeStamp = new int[states / 2];
+        edgeOpen = new boolean[states / 2];
+        edgeCrossings = new int[states / 2];
+        edgeLengths = new double[states / 2];
+    }
+
+    /** Initializes a state the first time the current search reaches it. */
+    private void touch(final int state, final int stamp) {
+        if (stateStamp[state] != stamp) {
+            stateStamp[state] = stamp;
+            stateCost[state] = Double.POSITIVE_INFINITY;
+            stateBends[state] = 0;
+            stateCrossings[state] = 0;
+            statePrevious[state] = -1;
+            stateClosed[state] = false;
+        }
+    }
+
+    private static boolean before(final double cost, final int bends, final int crossings, final int state,
+            final double otherCost, final int otherBends, final int otherCrossings, final int otherState) {
+        if (cost != otherCost) { return cost < otherCost; }
+        if (bends != otherBends) { return bends < otherBends; }
+        if (crossings != otherCrossings) { return crossings < otherCrossings; }
+        return state < otherState;
+    }
+
+    private void push(final double cost, final int bends, final int crossings, final int state) {
+        if (heapSize == heapState.length) {
+            int capacity = Math.max(64, 2 * heapSize);
+            heapCost = java.util.Arrays.copyOf(heapCost, capacity);
+            heapBends = java.util.Arrays.copyOf(heapBends, capacity);
+            heapCrossings = java.util.Arrays.copyOf(heapCrossings, capacity);
+            heapState = java.util.Arrays.copyOf(heapState, capacity);
+        }
+        int index = heapSize++;
+        while (index > 0) {
+            int parent = (index - 1) / 2;
+            if (!before(cost, bends, crossings, state,
+                    heapCost[parent], heapBends[parent], heapCrossings[parent], heapState[parent])) { break; }
+            heapCost[index] = heapCost[parent];
+            heapBends[index] = heapBends[parent];
+            heapCrossings[index] = heapCrossings[parent];
+            heapState[index] = heapState[parent];
+            index = parent;
+        }
+        heapCost[index] = cost;
+        heapBends[index] = bends;
+        heapCrossings[index] = crossings;
+        heapState[index] = state;
+    }
+
+    /** Removes the minimum, which is read from index 0 before the call. */
+    private void pop() {
+        heapSize--;
+        if (heapSize == 0) { return; }
+        double cost = heapCost[heapSize];
+        int bends = heapBends[heapSize];
+        int crossings = heapCrossings[heapSize];
+        int state = heapState[heapSize];
+        int index = 0;
+        while (true) {
+            int child = 2 * index + 1;
+            if (child >= heapSize) { break; }
+            if (child + 1 < heapSize && before(heapCost[child + 1], heapBends[child + 1], heapCrossings[child + 1],
+                    heapState[child + 1], heapCost[child], heapBends[child], heapCrossings[child], heapState[child])) {
+                child++;
+            }
+            if (!before(heapCost[child], heapBends[child], heapCrossings[child], heapState[child],
+                    cost, bends, crossings, state)) { break; }
+            heapCost[index] = heapCost[child];
+            heapBends[index] = heapBends[child];
+            heapCrossings[index] = heapCrossings[child];
+            heapState[index] = heapState[child];
+            index = child;
+        }
+        heapCost[index] = cost;
+        heapBends[index] = bends;
+        heapCrossings[index] = crossings;
+        heapState[index] = state;
     }
 
     /**
@@ -1779,6 +1954,8 @@ public final class FixedNodeRouter {
     }
 
     private int cell(final double coordinate) { return (int) Math.floor(coordinate / cellSize); }
+    /** Packs a cell coordinate pair into one key; a collision beyond the packed range only widens a bucket. */
+    private static Integer cellKey(final int x, final int y) { return Integer.valueOf(x * 65536 + y); }
     private static double distance(final Point a, final Point b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
     private static final class Endpoint {
@@ -1797,10 +1974,39 @@ public final class FixedNodeRouter {
         final double y;
         Point(final double x, final double y) { this.x = x; this.y = y; }
     }
+    /** An unordered pair of points, the key of the visibility cache. */
+    private static final class SegmentKey {
+        final double ax;
+        final double ay;
+        final double bx;
+        final double by;
+        SegmentKey(final Point a, final Point b) {
+            boolean ordered = a.x < b.x || a.x == b.x && a.y <= b.y;
+            ax = ordered ? a.x : b.x;
+            ay = ordered ? a.y : b.y;
+            bx = ordered ? b.x : a.x;
+            by = ordered ? b.y : a.y;
+        }
+        @Override
+        public int hashCode() {
+            int hash = (int) (ax * 8);
+            hash = hash * 31 + (int) (ay * 8);
+            hash = hash * 31 + (int) (bx * 8);
+            return hash * 31 + (int) (by * 8);
+        }
+        @Override
+        public boolean equals(final Object other) {
+            if (!(other instanceof SegmentKey)) { return false; }
+            SegmentKey key = (SegmentKey) other;
+            return ax == key.ax && ay == key.ay && bx == key.bx && by == key.by;
+        }
+    }
     private static final class Segment {
         final Point a;
         final Point b;
         final ElkEdge owner;
+        /** Stamp of the last query that tested this segment, so bucket walks skip duplicates. */
+        int mark;
         Segment(final Point a, final Point b) { this(a, b, null); }
         Segment(final Point a, final Point b, final ElkEdge owner) { this.a = a; this.b = b; this.owner = owner; }
     }
@@ -1863,6 +2069,8 @@ public final class FixedNodeRouter {
         final ElkNode node;
         /** Uniform clearance this rectangle was inflated by, relative to the real footprint. */
         final double inflation;
+        /** Stamp of the last query that tested this rectangle, so bucket walks skip duplicates. */
+        int mark;
         Rect(final double left, final double top, final double right, final double bottom, final ElkNode node,
                 final double inflation) {
             this.left = left; this.top = top; this.right = right; this.bottom = bottom; this.node = node;
