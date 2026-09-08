@@ -36,13 +36,19 @@ public final class BalancedTreeLayout {
 
     public static void place(final GeometryGraph data, final List<Vertex> component, final Vertex root,
             final Direction direction, final double spacing) {
+        place(data, component, root, direction, spacing, false);
+    }
+
+    /** With bus routing, labeled children reserve a full drop for their label instead of a slanted edge. */
+    public static void place(final GeometryGraph data, final List<Vertex> component, final Vertex root,
+            final Direction direction, final double spacing, final boolean busRouting) {
         List<Vertex> traversal = data.spanningTree(component, root);
         Profile[] profiles = new Profile[data.vertices.size()];
         double[] offsets = new double[data.vertices.size()];
         double[] labelFront = new double[data.vertices.size()];
         double[] labelSide = new double[data.vertices.size()];
         EdgeLabelReservation.treeExtents(data, component, direction, EdgeLabelReservation.Margins.of(data.graph),
-                labelFront, labelSide);
+                labelFront, labelSide, busRouting);
         double before = 0;
         double after = 0;
         for (Vertex vertex : component) {

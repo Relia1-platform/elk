@@ -1,0 +1,217 @@
+{
+  "id": "symmetric-tree-bus-labels",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    "elk.geometric.mode": "TREE",
+    "elk.geometric.tree.routing": "BUS"
+  },
+  "children": [
+    {
+      "id": "r",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "c",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a2",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "c1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "c2",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "c3",
+      "width": 40,
+      "height": 30
+    }
+  ],
+  "edges": [
+    {
+      "id": "e0",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "a"
+      ],
+      "labels": [
+        {
+          "id": "e0-label",
+          "text": "edge",
+          "width": 36,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e1",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "b"
+      ],
+      "labels": [
+        {
+          "id": "e1-label",
+          "text": "edge",
+          "width": 47,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e2",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "c"
+      ],
+      "labels": [
+        {
+          "id": "e2-label",
+          "text": "edge",
+          "width": 58,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e3",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a1"
+      ],
+      "labels": [
+        {
+          "id": "e3-label",
+          "text": "edge",
+          "width": 69,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e4",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a2"
+      ],
+      "labels": [
+        {
+          "id": "e4-label",
+          "text": "edge",
+          "width": 40,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e5",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b1"
+      ],
+      "labels": [
+        {
+          "id": "e5-label",
+          "text": "edge",
+          "width": 51,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e6",
+      "sources": [
+        "c"
+      ],
+      "targets": [
+        "c1"
+      ],
+      "labels": [
+        {
+          "id": "e6-label",
+          "text": "edge",
+          "width": 62,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e7",
+      "sources": [
+        "c"
+      ],
+      "targets": [
+        "c2"
+      ],
+      "labels": [
+        {
+          "id": "e7-label",
+          "text": "edge",
+          "width": 73,
+          "height": 16
+        }
+      ]
+    },
+    {
+      "id": "e8",
+      "sources": [
+        "c"
+      ],
+      "targets": [
+        "c3"
+      ],
+      "labels": [
+        {
+          "id": "e8-label",
+          "text": "edge",
+          "width": 44,
+          "height": 16
+        }
+      ]
+    }
+  ]
+}

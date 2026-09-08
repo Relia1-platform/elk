@@ -13,6 +13,7 @@ import java.util.Set;
 
 import org.eclipse.elk.alg.common.EdgeLabelReservation.Margins;
 import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
+import org.eclipse.elk.core.math.KVector;
 import org.eclipse.elk.core.options.CoreOptions;
 import org.eclipse.elk.core.options.EdgeLabelPlacement;
 import org.eclipse.elk.core.options.PortSide;
@@ -55,6 +56,11 @@ public final class FixedNodeRouter {
     private Set<Rect> searchBlockers;
     private final List<Segment> routedSegments = new ArrayList<>();
     private final List<Segment> directLines = new ArrayList<>();
+    private final Map<ElkEdge, List<Point>> prerouted = new HashMap<>();
+    private final Map<ElkEdge, List<Segment>> fixedSegments = new HashMap<>();
+    private final Map<ElkEdge, Integer> preferredSegments = new HashMap<>();
+    private ElkEdge current;
+    private boolean lenient;
     private int routing;
     private final double clearance;
     private final double cellSize;
@@ -127,6 +133,32 @@ public final class FixedNodeRouter {
         }
     }
 
+    /**
+     * Uses the given polyline, in scope coordinates, for an edge of this scope instead of routing
+     * it. The polyline is never changed; its labels are placed on it and it is an obstacle for the
+     * labels and a crossing for the routes of every other edge.
+     */
+    public void prerouted(final ElkEdge edge, final List<KVector> points) {
+        prerouted(edge, points, -1);
+    }
+
+    /**
+     * Like {@link #prerouted(ElkEdge, List)}, naming the segment that carries the labels first:
+     * the segment ending at point {@code preferredSegment}, or -1 for the longest segment.
+     */
+    public void prerouted(final ElkEdge edge, final List<KVector> points, final int preferredSegment) {
+        preferredSegments.put(edge, preferredSegment);
+        List<Point> converted = new ArrayList<>();
+        for (KVector point : points) { converted.add(new Point(point.x, point.y)); }
+        prerouted.put(edge, converted);
+        List<Segment> segments = new ArrayList<>();
+        for (int i = 1; i < converted.size(); i++) { segments.add(new Segment(converted.get(i - 1), converted.get(i))); }
+        fixedSegments.put(edge, segments);
+    }
+
+    /** With lenient routing, an edge that cannot be routed falls back to its direct segment. */
+    public void setLenient(final boolean lenient) { this.lenient = lenient; }
+
     public void route() {
         List<ElkEdge> edges = new ArrayList<>(graph.graph.getContainedEdges());
         // Stable IDs for edges are useful even when node order is intentionally model order.
@@ -153,77 +185,48 @@ public final class FixedNodeRouter {
             lanes.put(key, lane + 1);
             Route route = new Route(edge, source, target, sv, tv);
             route.lane = lane;
-            if (GeometryGraph.endpointNode(source) == GeometryGraph.endpointNode(target)) {
+            current = edge;
+            List<Point> fixed = prerouted.get(edge);
+            if (fixed != null) {
+                route.fixed = true;
+                excludeAncestors(source, route.excluded);
+                excludeAncestors(target, route.excluded);
+                route.points = new ArrayList<>(fixed);
+            } else if (GeometryGraph.endpointNode(source) == GeometryGraph.endpointNode(target)) {
                 excludeAncestors(source, route.excluded);
                 route.points = loop(edge, source, target, lane, route.excluded);
             } else {
-                route.start = endpoint(source, tc, sv);
-                route.end = endpoint(target, sc, tv);
-                excludeAncestors(source, route.excluded);
-                excludeAncestors(target, route.excluded);
-                route.outgoing = hierarchyGateways(source, tc);
-                route.incoming = hierarchyGateways(target, sc);
-                Collections.reverse(route.incoming);
-                List<Point> gateways = new ArrayList<>(route.outgoing);
-                gateways.addAll(route.incoming);
-                List<Point> points;
                 try {
-                    points = through(route.start.gateway, route.end.gateway, gateways, route.excluded);
+                    free(route, sc, tc, lane);
                 } catch (IllegalArgumentException failure) {
-                    // Inflated obstacle corners can overlap even when the node clearance is valid.
-                    // Free endpoints may leave from another side; fixed ports have only one candidate.
-                    List<Endpoint> starts = endpoints(source, tc, sv);
-                    List<Endpoint> ends = endpoints(target, sc, tv);
-                    List<Point> bestPath = null;
-                    double bestLength = Double.POSITIVE_INFINITY;
-                    for (Endpoint candidateStart : starts) {
-                        for (Endpoint candidateEnd : ends) {
-                            try {
-                                List<Point> path = through(candidateStart.gateway, candidateEnd.gateway, gateways,
-                                        route.excluded);
-                                double pathLength = distance(candidateStart.anchor, candidateStart.gateway)
-                                        + distance(candidateEnd.anchor, candidateEnd.gateway);
-                                for (int p = 1; p < path.size(); p++) { pathLength += distance(path.get(p - 1), path.get(p)); }
-                                if (pathLength < bestLength) {
-                                    bestPath = path;
-                                    bestLength = pathLength;
-                                    route.start = candidateStart;
-                                    route.end = candidateEnd;
-                                }
-                            } catch (IllegalArgumentException unavailable) {
-                                // Try the next visible side, in a deterministic order.
-                            }
-                        }
-                    }
-                    if (bestPath == null) {
-                        throw new IllegalArgumentException("Edge " + edge.getIdentifier() + ": " + failure.getMessage());
-                    }
-                    points = bestPath;
+                    if (!lenient) { throw failure; }
+                    // Route-only layouts of arbitrary positions keep going with a direct connector.
+                    route.start = endpoint(source, tc, sv);
+                    route.end = endpoint(target, sc, tv);
+                    route.outgoing = new ArrayList<>();
+                    route.incoming = new ArrayList<>();
+                    route.points = new ArrayList<>();
+                    route.points.add(route.start.anchor);
+                    route.points.add(route.end.anchor);
                 }
-                if (lane > 0 && points.size() == 2) {
-                    Point a = points.get(0);
-                    Point b = points.get(1);
-                    double length = distance(a, b);
-                    double offset = lane * Math.max(4, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE));
-                    Point middle = new Point((a.x + b.x) / 2 - (b.y - a.y) / Math.max(1, length) * offset,
-                            (a.y + b.y) / 2 + (b.x - a.x) / Math.max(1, length) * offset);
-                    if (visible(a, middle, route.excluded) && visible(middle, b, route.excluded)) {
-                        points.add(1, middle);
-                    }
-                }
-                points.add(0, route.start.anchor);
-                points.add(route.end.anchor);
-                route.points = points;
             }
             simplify(route.points);
-            placeLabels(route);
+            try {
+                placeLabels(route);
+            } catch (IllegalArgumentException failure) {
+                if (!lenient) { throw failure; }
+                Candidate fallback = bestEffort(route);
+                if (fallback != null) { apply(fallback, edge.getLabels()); }
+            }
             simplify(route.points);
             List<Point> points = route.points;
-            for (int i = 1; i < points.size(); i++) {
-                routedSegments.add(new Segment(points.get(i - 1), points.get(i)));
+            if (!route.fixed) {
+                for (int i = 1; i < points.size(); i++) {
+                    routedSegments.add(new Segment(points.get(i - 1), points.get(i)));
+                }
+                // Polyline routes have no shared hyperedge junctions; discard geometry from earlier layouts.
+                edge.setProperty(CoreOptions.JUNCTION_POINTS, null);
             }
-            // Polyline routes have no shared hyperedge junctions; discard geometry from earlier layouts.
-            edge.setProperty(CoreOptions.JUNCTION_POINTS, null);
             edge.getSections().clear();
             ElkEdgeSection section = ElkGraphUtil.createEdgeSection(edge);
             section.setIncomingShape(source);
@@ -234,6 +237,73 @@ public final class FixedNodeRouter {
                 ElkGraphUtil.createBendPoint(section, points.get(i).x, points.get(i).y);
             }
         }
+        current = null;
+    }
+
+    /** Routes an edge between two different nodes: gateways, hierarchy waypoints, lane offsets. */
+    private void free(final Route route, final Point sc, final Point tc, final int lane) {
+        ElkConnectableShape source = route.source;
+        ElkConnectableShape target = route.target;
+        Vertex sv = route.sv;
+        Vertex tv = route.tv;
+        ElkEdge edge = route.edge;
+        route.start = endpoint(source, tc, sv);
+        route.end = endpoint(target, sc, tv);
+        excludeAncestors(source, route.excluded);
+        excludeAncestors(target, route.excluded);
+        route.outgoing = hierarchyGateways(source, tc);
+        route.incoming = hierarchyGateways(target, sc);
+        Collections.reverse(route.incoming);
+        List<Point> gateways = new ArrayList<>(route.outgoing);
+        gateways.addAll(route.incoming);
+        List<Point> points;
+        try {
+            points = through(route.start.gateway, route.end.gateway, gateways, route.excluded);
+        } catch (IllegalArgumentException failure) {
+            // Inflated obstacle corners can overlap even when the node clearance is valid.
+            // Free endpoints may leave from another side; fixed ports have only one candidate.
+            List<Endpoint> starts = endpoints(source, tc, sv);
+            List<Endpoint> ends = endpoints(target, sc, tv);
+            List<Point> bestPath = null;
+            double bestLength = Double.POSITIVE_INFINITY;
+            for (Endpoint candidateStart : starts) {
+                for (Endpoint candidateEnd : ends) {
+                    try {
+                        List<Point> path = through(candidateStart.gateway, candidateEnd.gateway, gateways,
+                                route.excluded);
+                        double pathLength = distance(candidateStart.anchor, candidateStart.gateway)
+                                + distance(candidateEnd.anchor, candidateEnd.gateway);
+                        for (int p = 1; p < path.size(); p++) { pathLength += distance(path.get(p - 1), path.get(p)); }
+                        if (pathLength < bestLength) {
+                            bestPath = path;
+                            bestLength = pathLength;
+                            route.start = candidateStart;
+                            route.end = candidateEnd;
+                        }
+                    } catch (IllegalArgumentException unavailable) {
+                        // Try the next visible side, in a deterministic order.
+                    }
+                }
+            }
+            if (bestPath == null) {
+                throw new IllegalArgumentException("Edge " + edge.getIdentifier() + ": " + failure.getMessage());
+            }
+            points = bestPath;
+        }
+        if (lane > 0 && points.size() == 2) {
+            Point a = points.get(0);
+            Point b = points.get(1);
+            double length = distance(a, b);
+            double offset = lane * Math.max(4, graph.graph.getProperty(CoreOptions.SPACING_EDGE_EDGE));
+            Point middle = new Point((a.x + b.x) / 2 - (b.y - a.y) / Math.max(1, length) * offset,
+                    (a.y + b.y) / 2 + (b.x - a.x) / Math.max(1, length) * offset);
+            if (visible(a, middle, route.excluded) && visible(middle, b, route.excluded)) {
+                points.add(1, middle);
+            }
+        }
+        points.add(0, route.start.anchor);
+        points.add(route.end.anchor);
+        route.points = points;
     }
 
     private void excludeAncestors(final ElkConnectableShape shape, final Set<ElkNode> excluded) {
@@ -565,6 +635,7 @@ public final class FixedNodeRouter {
         List<ElkLabel> edgeLabels = route.edge.getLabels();
         if (edgeLabels.isEmpty()) { return; }
         Candidate best = onRoute(route);
+        if (best == null && route.fixed) { best = bestEffort(route); }
         if (best == null && route.start != null) { best = detour(route); }
         if (best == null) { best = corridor(route); }
         if (best.points != null) { route.points = best.points; }
@@ -579,6 +650,11 @@ public final class FixedNodeRouter {
         // Longest segments first; equal lengths keep route order.
         Collections.sort(segments, (a, b) -> Double.compare(distance(points.get(b - 1), points.get(b)),
                 distance(points.get(a - 1), points.get(a))));
+        // A pre-routed connector names the segment that is its own, such as the drop of a bus.
+        Integer preferred = route.fixed ? preferredSegments.get(route.edge) : null;
+        if (preferred != null && preferred >= 1 && preferred < points.size() && segments.remove(preferred)) {
+            segments.add(0, preferred);
+        }
         for (int segment : segments) {
             Candidate candidate = onSegment(route, points.get(segment - 1), points.get(segment), segment, null);
             if (candidate != null) { return candidate; }
@@ -662,6 +738,12 @@ public final class FixedNodeRouter {
         Rect guarded = rect.inflate(margins.edgeLabel);
         for (Segment segment : routedSegments) {
             if (guarded.crosses(segment.a, segment.b)) { return null; }
+        }
+        for (Map.Entry<ElkEdge, List<Segment>> entry : fixedSegments.entrySet()) {
+            if (entry.getKey() == route.edge) { continue; }
+            for (Segment segment : entry.getValue()) {
+                if (guarded.crosses(segment.a, segment.b)) { return null; }
+            }
         }
         for (int i = 1; i < points.size(); i++) {
             if (i == hostSegment) { continue; }
@@ -842,6 +924,31 @@ public final class FixedNodeRouter {
         simplify(points);
     }
 
+    /** A label beside the middle of the longest segment, accepting conflicts; the route is kept. */
+    private Candidate bestEffort(final Route route) {
+        List<Point> points = route.points;
+        if (points.size() < 2) { return null; }
+        int host = 1;
+        double longest = -1;
+        for (int i = 1; i < points.size(); i++) {
+            double length = distance(points.get(i - 1), points.get(i));
+            if (length > longest) { longest = length; host = i; }
+        }
+        Point a = points.get(host - 1);
+        Point b = points.get(host);
+        double length = Math.max(EPSILON, distance(a, b));
+        double ux = (b.x - a.x) / length;
+        double uy = (b.y - a.y) / length;
+        double[] size = EdgeLabelReservation.composite(route.edge.getLabels(), Math.abs(ux) >= Math.abs(uy),
+                margins.labelGap);
+        double across = Math.abs(uy) * size[0] + Math.abs(ux) * size[1];
+        double offset = inline ? 0 : across / 2 + margins.edgeLabel;
+        double cx = (a.x + b.x) / 2 + uy * offset;
+        double cy = (a.y + b.y) / 2 - ux * offset;
+        Rect rect = new Rect(cx - size[0] / 2, cy - size[1] / 2, cx + size[0] / 2, cy + size[1] / 2, null, 0);
+        return new Candidate(rect, 0, 0, ux, uy, size);
+    }
+
     /** Stage 3: an exterior corridor beyond the nearest side of the drawing. */
     private Candidate corridor(final Route route) {
         List<Point> points = route.points;
@@ -950,6 +1057,13 @@ public final class FixedNodeRouter {
             if (side(a, b, segment.a) * side(a, b, segment.b) < -EPSILON
                     && side(segment.a, segment.b, a) * side(segment.a, segment.b, b) < -EPSILON) { count++; }
         }
+        for (Map.Entry<ElkEdge, List<Segment>> entry : fixedSegments.entrySet()) {
+            if (entry.getKey() == current) { continue; }
+            for (Segment segment : entry.getValue()) {
+                if (side(a, b, segment.a) * side(a, b, segment.b) < -EPSILON
+                        && side(segment.a, segment.b, a) * side(segment.a, segment.b, b) < -EPSILON) { count++; }
+            }
+        }
         return count;
     }
 
@@ -1046,6 +1160,7 @@ public final class FixedNodeRouter {
         Endpoint end;
         List<Point> points;
         int lane;
+        boolean fixed;
         Route(final ElkEdge edge, final ElkConnectableShape source, final ElkConnectableShape target,
                 final Vertex sv, final Vertex tv) {
             this.edge = edge; this.source = source; this.target = target; this.sv = sv; this.tv = tv;

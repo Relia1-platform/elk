@@ -95,6 +95,11 @@ public class GeometricRoutingTest {
         return result;
     }
 
+    /** Open-interior clipping of a segment against a node's rectangle. */
+    static boolean crossesNode(final KVector a, final KVector b, final ElkNode node) {
+        return crosses(a, b, node.getX(), node.getY(), node.getWidth(), node.getHeight());
+    }
+
     private static boolean crosses(final KVector a, final KVector b, final double x, final double y,
             final double width, final double height) {
         double enter = 0;

@@ -3,6 +3,7 @@ package org.eclipse.elk.alg.geometric;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.eclipse.elk.alg.common.FixedNodeRouter;
 import org.eclipse.elk.alg.common.GeometryBounds;
@@ -11,9 +12,11 @@ import org.eclipse.elk.alg.common.GeometryGraph;
 import org.eclipse.elk.alg.common.GeometryGraph.Vertex;
 import org.eclipse.elk.alg.common.GeometryPacking;
 import org.eclipse.elk.alg.common.NodeMicroLayout;
+import org.eclipse.elk.alg.common.TreeBusRouter;
 import org.eclipse.elk.alg.geometric.options.GeometricMode;
 import org.eclipse.elk.alg.geometric.options.GeometricOptions;
 import org.eclipse.elk.alg.geometric.options.GeometricOrder;
+import org.eclipse.elk.alg.geometric.options.TreeRouting;
 import org.eclipse.elk.alg.layered.LayeredLayoutProvider;
 import org.eclipse.elk.alg.layered.options.FixedAlignment;
 import org.eclipse.elk.alg.layered.options.LayeredOptions;
@@ -21,6 +24,7 @@ import org.eclipse.elk.alg.mrtree.BalancedTreeLayout;
 import org.eclipse.elk.alg.radial.BalancedRadialLayout;
 import org.eclipse.elk.core.AbstractLayoutProvider;
 import org.eclipse.elk.core.options.CoreOptions;
+import org.eclipse.elk.core.options.Direction;
 import org.eclipse.elk.core.options.EdgeRouting;
 import org.eclipse.elk.core.util.IElkProgressMonitor;
 import org.eclipse.elk.graph.ElkEdge;
@@ -106,59 +110,84 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
         stage.done();
         stage = monitor.subTask(1);
         stage.begin("Placement", 1);
-        double spacing = scope.getProperty(CoreOptions.SPACING_NODE_NODE);
-        double angle = scope.getProperty(GeometricOptions.START_ANGLE);
-        if (!Double.isFinite(spacing) || spacing < 0 || !Double.isFinite(angle)) {
-            throw new IllegalArgumentException("Geometric spacing must be nonnegative and startAngle must be finite");
-        }
-        boolean clockwise = scope.getProperty(GeometricOptions.CLOCKWISE);
-        String anchorId = scope.getProperty(GeometricOptions.RING_ANCHOR_ID);
-        boolean anchorFound = anchorId.isEmpty();
-        for (Vertex vertex : graph.vertices) { anchorFound |= GeometryGraph.identifier(vertex.node).equals(anchorId); }
-        if (!anchorFound) { throw new IllegalArgumentException("Ring anchor does not exist: " + anchorId); }
+        boolean routeOnly = scope.getProperty(GeometricOptions.MODE) == GeometricMode.FIXED;
+        boolean bus = scope.getProperty(GeometricOptions.TREE_ROUTING) == TreeRouting.BUS;
+        List<List<Vertex>> busComponents = new ArrayList<>();
         ElkNode center = null;
-        for (List<Vertex> component : components) {
-            Vertex root = graph.chooseRoot(component);
-            GeometricMode mode = scope.getProperty(GeometricOptions.MODE);
-            if (mode == GeometricMode.AUTO) { mode = chooseMode(component, root); }
-            monitor.log("Geometric " + mode + ": " + component.size() + " nodes, root="
-                    + GeometryGraph.identifier(root.node));
-            switch (mode) {
-            case TREE:
-                BalancedTreeLayout.place(graph, component, root, scope.getProperty(CoreOptions.DIRECTION), spacing);
-                break;
-            case RADIAL:
-                BalancedRadialLayout.place(graph, component, root, spacing, 0, angle, clockwise);
-                if (components.size() == 1) { center = root.node; }
-                break;
-            case RING:
-                String componentAnchor = "";
-                for (Vertex vertex : component) {
-                    if (GeometryGraph.identifier(vertex.node).equals(anchorId)) { componentAnchor = anchorId; break; }
-                }
-                List<Vertex> order = RingLayoutKernel.order(component, componentAnchor);
-                RingLayoutKernel.place(order, spacing, angle, clockwise,
-                        scope.getProperty(CoreOptions.INTERACTIVE) && !scope.hasProperty(GeometricOptions.START_ANGLE), 0,
-                        graph);
-                break;
-            default:
-                MixedLayoutKernel.place(graph, component, stage);
-                break;
+        if (routeOnly) {
+            // Positions are the caller's; only connectors, labels and bounds are computed.
+            monitor.log("Geometric FIXED: " + graph.vertices.size() + " nodes kept in place");
+        } else {
+            double spacing = scope.getProperty(CoreOptions.SPACING_NODE_NODE);
+            double angle = scope.getProperty(GeometricOptions.START_ANGLE);
+            if (!Double.isFinite(spacing) || spacing < 0 || !Double.isFinite(angle)) {
+                throw new IllegalArgumentException("Geometric spacing must be nonnegative and startAngle must be finite");
             }
+            boolean clockwise = scope.getProperty(GeometricOptions.CLOCKWISE);
+            String anchorId = scope.getProperty(GeometricOptions.RING_ANCHOR_ID);
+            boolean anchorFound = anchorId.isEmpty();
+            for (Vertex vertex : graph.vertices) { anchorFound |= GeometryGraph.identifier(vertex.node).equals(anchorId); }
+            if (!anchorFound) { throw new IllegalArgumentException("Ring anchor does not exist: " + anchorId); }
+            for (List<Vertex> component : components) {
+                Vertex root = graph.chooseRoot(component);
+                GeometricMode mode = scope.getProperty(GeometricOptions.MODE);
+                if (mode == GeometricMode.AUTO) { mode = chooseMode(component, root); }
+                monitor.log("Geometric " + mode + ": " + component.size() + " nodes, root="
+                        + GeometryGraph.identifier(root.node));
+                switch (mode) {
+                case TREE:
+                    BalancedTreeLayout.place(graph, component, root, scope.getProperty(CoreOptions.DIRECTION), spacing, bus);
+                    if (bus) { busComponents.add(component); }
+                    break;
+                case RADIAL:
+                    BalancedRadialLayout.place(graph, component, root, spacing, 0, angle, clockwise);
+                    if (components.size() == 1) { center = root.node; }
+                    break;
+                case RING:
+                    String componentAnchor = "";
+                    for (Vertex vertex : component) {
+                        if (GeometryGraph.identifier(vertex.node).equals(anchorId)) { componentAnchor = anchorId; break; }
+                    }
+                    List<Vertex> order = RingLayoutKernel.order(component, componentAnchor);
+                    RingLayoutKernel.place(order, spacing, angle, clockwise,
+                            scope.getProperty(CoreOptions.INTERACTIVE) && !scope.hasProperty(GeometricOptions.START_ANGLE), 0,
+                            graph);
+                    break;
+                default:
+                    MixedLayoutKernel.place(graph, component, stage);
+                    break;
+                }
+            }
+            GeometryPacking.pack(components, scope.getProperty(CoreOptions.SPACING_COMPONENT_COMPONENT),
+                    scope.getProperty(CoreOptions.ASPECT_RATIO));
+            graph.applyPositions();
         }
-        GeometryPacking.pack(components, scope.getProperty(CoreOptions.SPACING_COMPONENT_COMPONENT),
-                scope.getProperty(CoreOptions.ASPECT_RATIO));
-        graph.applyPositions();
         stage.done();
         stage = monitor.subTask(1);
         stage.begin("Routing", 1);
-        new FixedNodeRouter(scope).route();
+        Runnable reroute = () -> route(scope, graph, busComponents, routeOnly);
+        reroute.run();
         stage.done();
         stage = monitor.subTask(1);
         stage.begin("Bounds", 1);
-        GeometryBounds.normalize(scope, center, true);
+        GeometryBounds.normalize(scope, center, true, reroute);
         stage.done();
         monitor.done();
+    }
+
+    /** Bus connectors for placed trees first, then every remaining edge through the general router. */
+    private void route(final ElkNode scope, final GeometryGraph graph, final List<List<Vertex>> busComponents,
+            final boolean lenient) {
+        FixedNodeRouter router = new FixedNodeRouter(scope);
+        router.setLenient(lenient);
+        Direction direction = scope.getProperty(CoreOptions.DIRECTION);
+        for (List<Vertex> component : busComponents) {
+            for (Map.Entry<ElkEdge, TreeBusRouter.Connector> entry
+                    : TreeBusRouter.route(graph, component, direction).entrySet()) {
+                router.prerouted(entry.getKey(), entry.getValue().points, entry.getValue().labelSegment);
+            }
+        }
+        router.route();
     }
 
     private GeometricMode chooseMode(final List<Vertex> component, final Vertex root) {

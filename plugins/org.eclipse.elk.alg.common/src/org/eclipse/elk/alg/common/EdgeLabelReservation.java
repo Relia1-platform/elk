@@ -260,6 +260,16 @@ public final class EdgeLabelReservation {
      */
     public static void treeExtents(final GeometryGraph graph, final List<Vertex> component,
             final Direction direction, final Margins margins, final double[] front, final double[] side) {
+        treeExtents(graph, component, direction, margins, front, side, false);
+    }
+
+    /**
+     * With bus routing the label sits beside the child's drop, which is half the level gap, so the
+     * gap must hold twice the label extent; without it, a slant allowance covers fanned-out edges.
+     */
+    public static void treeExtents(final GeometryGraph graph, final List<Vertex> component,
+            final Direction direction, final Margins margins, final double[] front, final double[] side,
+            final boolean busRouting) {
         List<Reservation> reservations = collect(graph, component);
         if (reservations.isEmpty()) { return; }
         boolean horizontal = direction == Direction.LEFT || direction == Direction.RIGHT;
@@ -281,7 +291,8 @@ public final class EdgeLabelReservation {
             // An only child hangs straight below its parent. Siblings fan out, and a label beside a
             // slanted edge extends toward the levels by up to half the larger extent (at 45 degrees).
             double slant = child.parent.children.size() > 1 ? Math.max(along, across) / 2 : 0;
-            front[child.index] = Math.max(front[child.index], along + 2 * margins.edgeLabel + slant);
+            double needed = busRouting ? 2 * (along + 2 * margins.edgeLabel) : along + 2 * margins.edgeLabel + slant;
+            front[child.index] = Math.max(front[child.index], needed);
             side[child.index] = Math.max(side[child.index], across + margins.labelNode);
         }
     }

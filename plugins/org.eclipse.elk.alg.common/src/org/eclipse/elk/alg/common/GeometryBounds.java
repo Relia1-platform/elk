@@ -60,6 +60,15 @@ public final class GeometryBounds {
     }
 
     public static void normalize(final ElkNode graph, final ElkNode center, final boolean includeEdges) {
+        normalize(graph, center, includeEdges, null);
+    }
+
+    /**
+     * Normalizes and, when edges attach to the scope's own ports, reroutes them with the given
+     * action so that pre-routed connectors and routing modes survive the translation.
+     */
+    public static void normalize(final ElkNode graph, final ElkNode center, final boolean includeEdges,
+            final Runnable reroute) {
         GeometryBounds bounds = measure(graph, includeEdges);
         ElkPadding padding = graph.getProperty(CoreOptions.PADDING);
         double width = bounds.maxX - bounds.minX + padding.getHorizontal();
@@ -100,7 +109,7 @@ public final class GeometryBounds {
         if (boundaryEndpoints) {
             // Parent ports live in the scope's frame and must not move with its children.
             // Rerouting after translation reconnects them without changing any port position.
-            new FixedNodeRouter(graph).route();
+            if (reroute != null) { reroute.run(); } else { new FixedNodeRouter(graph).route(); }
             GeometryBounds routed = measure(graph, true);
             double epsilon = 1e-6 * Math.max(1, Math.max(graph.getWidth(), graph.getHeight()));
             if (routed.minX < -epsilon || routed.minY < -epsilon

@@ -4,6 +4,7 @@ package org.eclipse.elk.alg.geometric
 import org.eclipse.elk.alg.geometric.GeometricLayoutProvider
 import org.eclipse.elk.alg.geometric.options.GeometricMode
 import org.eclipse.elk.alg.geometric.options.GeometricOrder
+import org.eclipse.elk.alg.geometric.options.TreeRouting
 import org.eclipse.elk.core.math.ElkPadding
 import org.eclipse.elk.core.options.Direction
 import org.eclipse.elk.core.options.EdgeRouting
@@ -49,11 +50,12 @@ algorithm geometric(GeometricLayoutProvider) {
     supports startAngle
     supports clockwise
     supports ring.anchorId
+    supports tree.routing
 }
 
 option mode: GeometricMode {
     label "Geometric Mode"
-    description "Select a geometric family, or recognize and compose motifs automatically."
+    description "Select a geometric family, recognize and compose motifs automatically, or keep the given positions and only route (FIXED)."
     default = GeometricMode.AUTO
     targets parents
 }
@@ -86,6 +88,14 @@ group ring {
         label "Ring Anchor"
         description "Identifier of the node placed at the start angle."
         default = ""
+        targets parents
+    }
+}
+group tree {
+    option routing: TreeRouting {
+        label "Tree Routing"
+        description "DIRECT draws straight parent-child connectors; BUS shares one orthogonal bus per parent with drops into the children, as in an org chart."
+        default = TreeRouting.DIRECT
         targets parents
     }
 }
