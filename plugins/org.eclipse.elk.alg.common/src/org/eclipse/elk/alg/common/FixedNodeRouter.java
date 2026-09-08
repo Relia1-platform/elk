@@ -47,6 +47,8 @@ public final class FixedNodeRouter {
     private static final int DETOUR_SEARCHES = 6;
     /** Positions tried on each side of the preferred position along a segment. */
     private static final int SLIDE_STEPS = 6;
+    /** Preferred label segment marker for the last segment, which survives route simplification. */
+    private static final int LAST_SEGMENT = Integer.MAX_VALUE;
     /** Cells of dense bucket arrays kept around the obstacles, and the most cells they may hold. */
     private static final int GRID_MARGIN = 4;
     private static final int GRID_LIMIT = 1 << 18;
@@ -207,7 +209,7 @@ public final class FixedNodeRouter {
      * the segment ending at point {@code preferredSegment}, or -1 for the longest segment.
      */
     public void prerouted(final ElkEdge edge, final List<KVector> points, final int preferredSegment) {
-        preferredSegments.put(edge, preferredSegment);
+        preferredSegments.put(edge, preferredSegment == points.size() - 1 ? LAST_SEGMENT : preferredSegment);
         List<Point> converted = new ArrayList<>();
         for (KVector point : points) { converted.add(new Point(point.x, point.y)); }
         prerouted.put(edge, converted);
@@ -1037,6 +1039,7 @@ public final class FixedNodeRouter {
                 distance(points.get(a - 1), points.get(a))));
         // A pre-routed connector names the segment that is its own, such as the drop of a bus.
         Integer preferred = route.fixed ? preferredSegments.get(route.edge) : null;
+        if (preferred != null && preferred == LAST_SEGMENT) { preferred = points.size() - 1; }
         if (preferred != null && preferred >= 1 && preferred < points.size() && segments.remove(preferred)) {
             segments.add(0, preferred);
         }

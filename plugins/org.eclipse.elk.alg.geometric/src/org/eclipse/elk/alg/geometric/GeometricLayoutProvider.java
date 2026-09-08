@@ -2,6 +2,7 @@
 package org.eclipse.elk.alg.geometric;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -115,6 +116,7 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
         boolean routeOnly = scope.getProperty(GeometricOptions.MODE) == GeometricMode.FIXED;
         boolean bus = scope.getProperty(GeometricOptions.TREE_ROUTING) == TreeRouting.BUS;
         List<List<Vertex>> busComponents = new ArrayList<>();
+        Map<Vertex, Double> hangingTrunks = new HashMap<>();
         ElkNode center = null;
         if (routeOnly) {
             // Positions are the caller's; only connectors, labels and bounds are computed.
@@ -133,13 +135,16 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
             for (List<Vertex> component : components) {
                 Vertex root = graph.chooseRoot(component);
                 GeometricMode mode = scope.getProperty(GeometricOptions.MODE);
-                if (mode == GeometricMode.AUTO) { mode = chooseMode(component, root); }
+                int hanging = Math.max(0, scope.getProperty(GeometricOptions.TREE_HANGING));
+                if (mode == GeometricMode.AUTO) { mode = chooseMode(component, root, hanging); }
                 monitor.log("Geometric " + mode + ": " + component.size() + " nodes, root="
                         + GeometryGraph.identifier(root.node));
                 switch (mode) {
                 case TREE:
-                    BalancedTreeLayout.place(graph, component, root, scope.getProperty(CoreOptions.DIRECTION), spacing, bus);
-                    if (bus) { busComponents.add(component); }
+                    Map<Vertex, Double> trunks = BalancedTreeLayout.place(graph, component, root,
+                            scope.getProperty(CoreOptions.DIRECTION), spacing, bus, hanging);
+                    hangingTrunks.putAll(trunks);
+                    if (bus || !trunks.isEmpty()) { busComponents.add(component); }
                     break;
                 case RADIAL:
                     BalancedRadialLayout.place(graph, component, root, spacing, 0, angle, clockwise);
@@ -178,7 +183,7 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
         stage.done();
         stage = monitor.subTask(1);
         stage.begin("Routing", 1);
-        Runnable reroute = () -> route(scope, graph, busComponents, routeOnly);
+        Runnable reroute = () -> route(scope, graph, busComponents, hangingTrunks, bus, routeOnly);
         reroute.run();
         stage.done();
         stage = monitor.subTask(1);
@@ -191,26 +196,28 @@ public final class GeometricLayoutProvider extends AbstractLayoutProvider {
 
     /** Bus connectors for placed trees first, then every remaining edge through the general router. */
     private void route(final ElkNode scope, final GeometryGraph graph, final List<List<Vertex>> busComponents,
-            final boolean lenient) {
+            final Map<Vertex, Double> hangingTrunks, final boolean rowBus, final boolean lenient) {
         FixedNodeRouter router = new FixedNodeRouter(scope);
         router.setLenient(lenient);
         router.setOrthogonal(scope.getProperty(GeometricOptions.ROUTING) == GeometricRouting.ORTHOGONAL);
         Direction direction = scope.getProperty(CoreOptions.DIRECTION);
         for (List<Vertex> component : busComponents) {
             for (Map.Entry<ElkEdge, TreeBusRouter.Connector> entry
-                    : TreeBusRouter.route(graph, component, direction).entrySet()) {
+                    : TreeBusRouter.route(graph, component, direction, hangingTrunks, rowBus).entrySet()) {
                 router.prerouted(entry.getKey(), entry.getValue().points, entry.getValue().labelSegment);
             }
         }
         router.route();
     }
 
-    private GeometricMode chooseMode(final List<Vertex> component, final Vertex root) {
+    private GeometricMode chooseMode(final List<Vertex> component, final Vertex root, final int hanging) {
         if (root.node.getProperty(GeometryGraph.ROOT_HINT)) { return GeometricMode.RADIAL; }
         int edges = TopologyAnalysis.edgeCount(component);
         if (edges == component.size() - 1) {
-            return component.size() > 3 && root.neighbors.size() == component.size() - 1
-                    ? GeometricMode.RADIAL : GeometricMode.TREE;
+            // A star hangs its leaves as a tree once it has more of them than the hanging threshold.
+            boolean star = component.size() > 3 && root.neighbors.size() == component.size() - 1;
+            boolean hangs = hanging > 0 && root.neighbors.size() > hanging;
+            return star && !hangs ? GeometricMode.RADIAL : GeometricMode.TREE;
         }
         List<Vertex> cycle = TopologyAnalysis.longestBasisCycle(component);
         if (TopologyAnalysis.qualifiesAsRing(component, cycle)) { return GeometricMode.RING; }

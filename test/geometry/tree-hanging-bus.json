@@ -1,0 +1,330 @@
+{
+  "id": "tree-hanging-bus",
+  "layoutOptions": {
+    "elk.algorithm": "org.eclipse.elk.geometric",
+    "elk.spacing.nodeNode": "24",
+    "elk.padding": "[top=24,left=24,bottom=24,right=24]",
+    "elk.geometric.mode": "TREE",
+    "elk.geometric.tree.routing": "BUS",
+    "elk.geometric.tree.hanging": "4"
+  },
+  "children": [
+    {
+      "id": "r",
+      "width": 60,
+      "height": 40
+    },
+    {
+      "id": "a",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "a2",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b1",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b2",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "b3",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l01",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l02",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l03",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l04",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l05",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l06",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l07",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l08",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l09",
+      "width": 40,
+      "height": 30
+    },
+    {
+      "id": "l10",
+      "width": 40,
+      "height": 30
+    }
+  ],
+  "edges": [
+    {
+      "id": "r-a",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "a"
+      ],
+      "labels": [
+        {
+          "id": "r-a-l",
+          "text": "l1",
+          "width": 43,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "a-a1",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a1"
+      ]
+    },
+    {
+      "id": "a-a2",
+      "sources": [
+        "a"
+      ],
+      "targets": [
+        "a2"
+      ],
+      "labels": [
+        {
+          "id": "a-a2-l",
+          "text": "l3",
+          "width": 69,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "r-b",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "b"
+      ]
+    },
+    {
+      "id": "b-b1",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b1"
+      ],
+      "labels": [
+        {
+          "id": "b-b1-l",
+          "text": "l5",
+          "width": 45,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "b-b2",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b2"
+      ]
+    },
+    {
+      "id": "b-b3",
+      "sources": [
+        "b"
+      ],
+      "targets": [
+        "b3"
+      ],
+      "labels": [
+        {
+          "id": "b-b3-l",
+          "text": "l7",
+          "width": 71,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "r-l01",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l01"
+      ]
+    },
+    {
+      "id": "r-l02",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l02"
+      ],
+      "labels": [
+        {
+          "id": "r-l02-l",
+          "text": "l9",
+          "width": 47,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "r-l03",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l03"
+      ]
+    },
+    {
+      "id": "r-l04",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l04"
+      ],
+      "labels": [
+        {
+          "id": "r-l04-l",
+          "text": "l11",
+          "width": 73,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "r-l05",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l05"
+      ]
+    },
+    {
+      "id": "r-l06",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l06"
+      ],
+      "labels": [
+        {
+          "id": "r-l06-l",
+          "text": "l13",
+          "width": 49,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "r-l07",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l07"
+      ]
+    },
+    {
+      "id": "r-l08",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l08"
+      ],
+      "labels": [
+        {
+          "id": "r-l08-l",
+          "text": "l15",
+          "width": 75,
+          "height": 14
+        }
+      ]
+    },
+    {
+      "id": "r-l09",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l09"
+      ]
+    },
+    {
+      "id": "r-l10",
+      "sources": [
+        "r"
+      ],
+      "targets": [
+        "l10"
+      ],
+      "labels": [
+        {
+          "id": "r-l10-l",
+          "text": "l17",
+          "width": 51,
+          "height": 14
+        }
+      ]
+    }
+  ]
+}

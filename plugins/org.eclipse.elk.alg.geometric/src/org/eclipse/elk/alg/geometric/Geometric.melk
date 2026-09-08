@@ -52,6 +52,7 @@ algorithm geometric(GeometricLayoutProvider) {
     supports clockwise
     supports ring.anchorId
     supports tree.routing
+    supports tree.hanging
     supports routing
     supports refine
     supports refineGrid
@@ -118,6 +119,12 @@ group tree {
         label "Tree Routing"
         description "DIRECT draws straight parent-child connectors; BUS shares one orthogonal bus per parent with drops into the children, as in an org chart."
         default = TreeRouting.DIRECT
+        targets parents
+    }
+    option hanging: int {
+        label "Hanging Leaves"
+        description "A parent with more leaf children than this hangs them in columns beside vertical trunks, in rows of one leaf per side, connected through the bus, the trunk and a stub that carries the label; 0 keeps every child in its row. A star with that many leaves is laid out as a TREE in AUTO mode."
+        default = 0
         targets parents
     }
 }
